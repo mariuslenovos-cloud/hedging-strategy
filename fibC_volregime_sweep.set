@@ -1,0 +1,151 @@
+; ============================================================================
+; fib C SAFE -- VOL-REGIME (structural-break) filter combination sweep
+; EA: Marius Hedger M5 v1.0 fib C SAFE  |  GOLD M5  |  EVERY TICK  |  Dec2025-Jun2026
+; Load via Strategy Tester -> Inputs tab -> Load, then tick Optimization.
+; USE "Slow complete algorithm" (NOT genetic -- genetic prunes the grid).
+; ----------------------------------------------------------------------------
+; Master UseVolRegimeFilter is FIXED ON, so the pass where all 3 toggles=0
+; reproduces the live baseline INSIDE the results table (your reference row).
+; Swept (32 passes):
+;   VolBlockAllEntries {off,on}  (a) sit out the storm
+;   VolBlockStacking   {off,on}  (b) allow 1st entry/dir, no piling in
+;   VolScaledFloor     {off,on}  (c) widen floor 30%->60% so baskets ride out
+;   VolRegimeMult      {2.5,3.0,3.5,4.0}  HOT threshold (Feb-4 was ~7-11x)
+; VolFloorMaxMult FIXED 2.0 here -> sweep it as stage-2 on the winning combo.
+; Report per pass: Net, Profit Factor, max equity DD %, Recovery Factor.
+; NOTE: a+b == a (a blocks ALL entries, subsumes b); rows with all toggles=0
+;   are baseline duplicates across the 4 mult values -- expected, ignore dupes.
+; ============================================================================
+
+; ---- SWEPT: vol-regime levers ----
+UseVolRegimeFilter=1
+UseVolRegimeFilter,F=0
+
+VolBlockAllEntries=1
+VolBlockAllEntries,F=1
+VolBlockAllEntries,1=0
+VolBlockAllEntries,2=1
+VolBlockAllEntries,3=1
+
+VolBlockStacking=0
+VolBlockStacking,F=1
+VolBlockStacking,1=0
+VolBlockStacking,2=1
+VolBlockStacking,3=1
+
+VolScaledFloor=0
+VolScaledFloor,F=1
+VolScaledFloor,1=0
+VolScaledFloor,2=1
+VolScaledFloor,3=1
+
+VolRegimeMult=3.0
+VolRegimeMult,F=1
+VolRegimeMult,1=2.5
+VolRegimeMult,2=0.5
+VolRegimeMult,3=4.0
+
+VolFloorMaxMult=2.0
+VolFloorMaxMult,F=0
+
+VolATRFastPeriod=5
+VolATRFastPeriod,F=0
+VolATRSlowPeriod=60
+VolATRSlowPeriod,F=0
+
+; ---- FIXED (locked = current fib C SAFE config) ----
+LotSize=0.02
+LotSize,F=0
+StopLoss=0
+StopLoss,F=0
+TakeProfit=0
+TakeProfit,F=0
+LotMultiplier=2
+LotMultiplier,F=0
+UseFibonacci=1
+UseFibonacci,F=0
+UseCompounding=1
+UseCompounding,F=0
+CompoundingBase=3000.0
+CompoundingBase,F=0
+ClosePreviousTrade=1
+ClosePreviousTrade,F=0
+UseBuySellProfitThreshold=1
+UseBuySellProfitThreshold,F=0
+BuySellProfitThreshold=50
+BuySellProfitThreshold,F=0
+BuySellProfitThresholdInCurrency=0
+BuySellProfitThresholdInCurrency,F=0
+UseBuyOneSellProfitThreshold=0
+UseBuyOneSellProfitThreshold,F=0
+BuyOneSellProfitThreshold=5
+BuyOneSellProfitThreshold,F=0
+CommentText=MyEA
+UseSessionFilter=1
+UseSessionFilter,F=0
+SessionStartHour=9
+SessionStartHour,F=0
+SessionEndHour=23
+SessionEndHour,F=0
+MaxSameTrades=5
+MaxSameTrades,F=0
+UseCombinedClose=0
+UseCombinedClose,F=0
+CombinedProfitThreshold=50
+CombinedProfitThreshold,F=0
+UseIndividualClose=0
+UseIndividualClose,F=0
+UseBasketTrail=1
+UseBasketTrail,F=0
+MinFloatToActivate=80
+MinFloatToActivate,F=0
+BasketTrailAmount=15
+BasketTrailAmount,F=0
+UseOrphanClose=0
+UseOrphanClose,F=0
+OrphanMinBars=200
+OrphanMinBars,F=0
+UseBasketStop=1
+UseBasketStop,F=0
+BasketMaxLossPct=30.0
+BasketMaxLossPct,F=0
+UseMaxBasketLots=0
+UseMaxBasketLots,F=0
+MaxBasketLotsTotal=0.30
+MaxBasketLotsTotal,F=0
+UseDailyTrendFilter=1
+UseDailyTrendFilter,F=0
+DailyMA_Period=50
+DailyMA_Period,F=0
+UseD1DirectionReset=0
+UseD1DirectionReset,F=0
+UseImbalanceLock=1
+UseImbalanceLock,F=0
+ImbalanceThreshold=2
+ImbalanceThreshold,F=0
+ATRPeriod=14
+ATRPeriod,F=0
+ATRMultiplier=2.0
+ATRMultiplier,F=0
+grisk=7
+grisk,F=0
+countbars=200
+countbars,F=0
+goldminershift=1
+goldminershift,F=0
+MA_Period=20
+MA_Period,F=0
+MA_Angle_Threshold=20.0
+MA_Angle_Threshold,F=0
+ADX_Period=14
+ADX_Period,F=0
+ADX_Threshold=25.0
+ADX_Threshold,F=0
+UseMaStop=0
+UseMaStop,F=0
+MaStepTrail=250
+MaStepTrail,F=0
+UseAutoThreshold=0
+UseAutoThreshold,F=0
+AutoTrailDistance=50
+AutoTrailDistance,F=0

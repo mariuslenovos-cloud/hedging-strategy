@@ -1,0 +1,145 @@
+Pulling 62 tickers from Yahoo (daily, 3y):
+  got 62/62
+
+group       A      B          n  corr    ADF half-life | z-score backtest (net of cost)
+----------------------------------------------------------------------------------------------------------------------
+us_banks    PNC    TFC      753  0.98  -4.30      12.6 | —  coint
+big_tech    AMZN   NVDA     753  0.95  -4.09      16.9 | —  coint
+oil_majors  COP    OXY      753  0.93  -3.74      19.5 | —  coint
+pharma      PFE    ABBV     753 -0.66  -3.58      22.7 | —  coint
+gold_miners KGC    WPM      753  0.99  -3.45      23.7 | —  coint
+us_banks    USB    PNC      753  0.96  -3.31      23.1 | —  coint
+us_banks    JPM    BAC      753  0.98  -3.28      25.0 | —  coint
+oil_majors  CVX    VLO      753  0.80  -3.26      26.5 | —  coint
+pharma      PFE    MRK      753  0.49  -3.16      41.2 | —  coint
+gold_miners AEM    KGC      753  1.00  -3.14      25.5 | —  coint
+pharma      PFE    JNJ      753 -0.15  -3.12      42.2 | —  coint
+oil_majors  PSX    VLO      753  0.88  -3.12      41.1 | —  coint
+pharma      PFE    LLY      753 -0.61  -3.09      29.5 | —  coint
+us_banks    JPM    WFC      753  0.98  -3.06      25.5 | —  coint
+big_tech    AAPL   GOOGL    753  0.89  -3.02      33.0 | —  coint
+i_banks     GS     MS       753  0.99  -2.99      30.7 | —  coint
+oil_majors  XOM    VLO      753  0.90  -2.96      27.1 | —  coint
+pharma      ABBV   LLY      753  0.83  -2.93      31.8 | —  coint
+us_banks    BAC    TFC      753  0.95  -2.89      28.4 | —  coint
+oil_majors  VLO    MPC      753  0.94  -2.88      41.2 | —  coint
+oil_majors  PSX    MPC      753  0.93  -2.85      37.3 | —
+autos       F      GM       753  0.34  -2.84      35.9 | —
+big_tech    AMZN   META     753  0.93  -2.83      37.7 | —
+oil_majors  CVX    MPC      753  0.65  -2.81      39.4 | —
+oil_majors  CVX    PSX      753  0.67  -2.68      41.6 | —
+us_banks    JPM    TFC      753  0.91  -2.66      37.1 | —
+gold_miners AEM    WPM      753  0.99  -2.63      38.5 | —
+us_banks    USB    TFC      753  0.95  -2.58      31.3 | —
+ca_banks    BNS    BMO      753  0.96  -2.56      35.1 | —
+oil_majors  XOM    CVX      753  0.86  -2.52      45.7 | —
+pharma      PFE    BMY      753  0.39  -2.52      57.6 | —
+us_banks    WFC    TFC      753  0.91  -2.48      43.6 | —
+pharma      BMY    ABBV     753 -0.08  -2.45      51.4 | —
+gold_miners KGC    FNV      753  0.90  -2.44      75.3 | —
+us_banks    BAC    C        753  0.95  -2.42      56.3 | —
+airlines    DAL    LUV      753  0.75  -2.42      51.6 | —
+big_tech    AAPL   AMZN     753  0.80  -2.40      54.5 | —
+us_banks    C      USB      753  0.89  -2.37      45.3 | —
+oil_majors  XOM    MPC      753  0.78  -2.36      48.1 | —
+pharma      BMY    LLY      753 -0.18  -2.35      52.2 | —
+ca_banks    RY     CM       753  0.99  -2.35      24.9 | —
+big_tech    META   NVDA     753  0.94  -2.34      36.6 | —
+big_tech    AAPL   NVDA     753  0.83  -2.33      51.1 | —
+airlines    AAL    LUV      753  0.34  -2.31      45.8 | —
+semis       AMD    MU       753  0.89  -2.31      44.9 | —
+ca_banks    TD     BMO      753  0.93  -2.26      52.5 | —
+big_tech    MSFT   META     753  0.83  -2.25      46.8 | —
+us_banks    BAC    PNC      753  0.96  -2.21      46.6 | —
+ca_banks    RY     BNS      753  0.95  -2.21      49.9 | —
+gold_miners FNV    WPM      753  0.92  -2.20      83.4 | —
+gold_miners AEM    FNV      753  0.90  -2.18      97.8 | —
+telecom     VZ     T        753  0.79  -2.17      45.5 | —
+gold_miners NEM    KGC      753  0.94  -2.16      68.8 | —
+retail      HD     LOW      753  0.83  -2.14      65.3 | —
+oil_majors  XOM    PSX      753  0.75  -2.12      58.9 | —
+gold_miners NEM    FNV      753  0.95  -2.12      55.3 | —
+us_banks    JPM    USB      753  0.86  -2.10      56.2 | —
+us_banks    BAC    WFC      753  0.97  -2.07      45.5 | —
+telecom     T      TMUS     753  0.91  -2.07      51.1 | —
+gold_miners NEM    WPM      753  0.95  -2.07      67.6 | —
+us_banks    JPM    PNC      753  0.93  -2.04      57.8 | —
+payments    V      MA       753  0.97  -2.04      46.1 | —
+us_banks    BAC    USB      753  0.91  -2.01      49.9 | —
+telecom     VZ     TMUS     753  0.69  -1.98      50.8 | —
+beverage    KO     PEP      753 -0.48  -1.97      54.2 | —
+oil_majors  COP    MPC      753  0.29  -1.96      66.0 | —
+retail      COST   LOW      753  0.53  -1.95      82.4 | —
+oil_majors  COP    VLO      753  0.32  -1.95      64.8 | —
+oil_majors  CVX    OXY      753  0.34  -1.92      69.4 | —
+airlines    UAL    LUV      753  0.69  -1.91      85.6 | —
+oil_majors  COP    PSX      753  0.46  -1.89      69.6 | —
+ca_banks    RY     BMO      753  0.93  -1.86      79.3 | —
+ca_banks    TD     BNS      753  0.92  -1.82      74.6 | —
+semis       NVDA   TXN      753  0.62  -1.81      84.4 | —
+semis       AMD    INTC     753  0.74  -1.77      81.3 | —
+us_banks    WFC    PNC      753  0.91  -1.77      80.2 | —
+us_banks    JPM    C        753  0.96  -1.73      68.0 | —
+oil_majors  CVX    COP      753  0.54  -1.72      88.6 | —
+us_banks    WFC    USB      753  0.85  -1.71      80.1 | —
+semis       NVDA   QCOM     753  0.64  -1.69      89.4 | —
+oil_majors  OXY    MPC      753  0.09  -1.69      96.9 | —
+semis       MU     TXN      753  0.70  -1.68      82.0 | —
+semis       AMD    TXN      753  0.67  -1.67      78.9 | —
+oil_majors  OXY    VLO      753  0.10  -1.67      97.6 | —
+us_banks    C      TFC      753  0.90  -1.66      63.9 | —
+oil_majors  OXY    PSX      753  0.26  -1.65     104.8 | —
+gold_miners GOLD   WPM      753  0.20  -1.62      99.7 | —
+gold_miners GOLD   KGC      753  0.17  -1.62      99.2 | —
+retail      TGT    COST     753 -0.30  -1.61      86.6 | —
+retail      COST   HD       753  0.62  -1.60     101.1 | —
+gold_miners GOLD   FNV      753  0.28  -1.60     101.3 | —
+gold_miners GOLD   AEM      753  0.17  -1.60     100.6 | —
+gold_miners NEM    AEM      753  0.94  -1.56     109.3 | —
+big_tech    MSFT   AMZN     753  0.77  -1.55      89.2 | —
+retail      TGT    HD       753 -0.03  -1.53      98.0 | —
+us_banks    C      PNC      753  0.91  -1.51      85.4 | —
+pharma      MRK    ABBV     753 -0.23  -1.50     110.0 | —
+big_tech    MSFT   NVDA     753  0.78  -1.49      79.1 | —
+ca_banks    RY     TD       753  0.85  -1.49     145.8 | —
+semis       NVDA   INTC     753  0.04  -1.49     233.1 | —
+retail      TGT    LOW      753  0.09  -1.47     108.1 | —
+oil_majors  XOM    OXY      753  0.09  -1.42     114.0 | —
+airlines    DAL    UAL      753  0.91  -1.41      86.1 | —
+ca_banks    BNS    CM       753  0.95  -1.41      86.3 | —
+big_tech    MSFT   GOOGL    753  0.51  -1.40     112.2 | —
+pharma      MRK    LLY      753  0.09  -1.40     137.1 | —
+pharma      MRK    JNJ      753  0.13  -1.38     139.8 | —
+pharma      JNJ    LLY      753  0.53  -1.34     150.5 | —
+big_tech    AAPL   META     753  0.69  -1.34     130.6 | —
+ca_banks    BMO    CM       753  0.93  -1.33      93.1 | —
+us_banks    WFC    C        753  0.93  -1.32     105.0 | —
+semis       NVDA   AMD      753  0.62  -1.31     193.8 | —
+big_tech    GOOGL  AMZN     753  0.82  -1.29     125.4 | —
+pharma      JNJ    ABBV     753  0.67  -1.29     146.0 | —
+pharma      MRK    BMY      753  0.10  -1.28     151.6 | —
+retail      WMT    COST     753  0.89  -1.26     147.0 | —
+semis       INTC   MU       753  0.67  -1.22     136.8 | —
+retail      WMT    TGT      753 -0.50  -1.19     156.4 | —
+oil_majors  XOM    COP      753  0.36  -1.01     205.1 | —
+semis       TXN    QCOM     753  0.56  -0.98     112.3 | —
+semis       NVDA   MU       753  0.73  -0.94     277.9 | —
+big_tech    GOOGL  NVDA     753  0.83  -0.91     203.8 | —
+retail      WMT    LOW      753  0.50  -0.87     193.4 | —
+gold_miners NEM    GOLD     753  0.38  -0.75     398.8 | —
+big_tech    AAPL   MSFT     753  0.50  -0.67     479.1 | —
+airlines    DAL    AAL      753  0.31  -0.57     349.0 | —
+airlines    UAL    AAL      753  0.19  -0.56     544.0 | —
+ca_banks    TD     CM       753  0.84  -0.55     381.5 | —
+retail      WMT    HD       753  0.42  -0.39     643.0 | —
+semis       INTC   TXN      753  0.38  -0.27     555.8 | —
+pharma      JNJ    BMY      753  0.33  -0.24     909.3 | —
+semis       AMD    QCOM     753  0.57  -0.09     462.3 | —
+big_tech    GOOGL  META     753  0.68   0.231000000000.0 | —
+semis       MU     QCOM     753  0.46   0.721000000000.0 | —
+semis       INTC   QCOM     753  0.10   0.891000000000.0 | —
+
+0 CANDIDATE pairs (cointegrated ADF<-2.86 + half-life 2-60d + PF>1.5 + >=8 trades):
+
+A PORTFOLIO of these (each market-neutral, ~uncorrelated) = the stat-arb book. Next: map to MT5 CFDs, lower-z/grid-on-spread for more trades, real per-bar cost, CPCV -> EA.
+EXIT 0

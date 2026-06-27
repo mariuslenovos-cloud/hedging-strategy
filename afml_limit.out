@@ -1,0 +1,96 @@
+Pulling bars + building events:
+  EURUSD     100000 bars -> 10076 events
+  USDJPY     100000 bars -> 10061 events
+  GBPUSD     100000 bars -> 10074 events
+  USDCHF     100000 bars -> 9997 events
+  AUDUSD     100000 bars -> 10072 events
+  NZDUSD     100000 bars -> 10318 events
+  USDCAD     100000 bars -> 10219 events
+  EURJPY     100000 bars -> 9866 events
+  GBPJPY     100000 bars -> 9882 events
+  EURGBP     100000 bars -> 9405 events
+  AUDJPY     100000 bars -> 9856 events
+
+Pooled 109826 events | 11 symbols | primary base win 51.4% | mean R +0.028
+Feature importance (full-data, in-sample):
+   hour    0.322  ################
+   tvol_z  0.200  ##########
+   mom     0.174  #########
+   side    0.079  ####
+   ret20   0.061  ###
+   rng     0.057  ###
+   ret60   0.033  ##
+   volreg  0.031  ##
+   vol     0.025  #
+   fd      0.018  #
+
+Purged K-fold OOS (meta-labeling; barrier 4xbar-vol; REAL per-event spread):
+   primary (take all)     trades=109826 avgR=+0.028 totR=+3097.9
+   ML gate (gross/mid)    trades=4903   avgR=+0.541 totR=+2653.4 win=77%
+   ML gate (NET real spr) trades=4903   avgR=-0.106 totR=-519.3  (avg spread cost 0.647R/trade)
+   per-symbol (NET real spr): GBPUSD=+0.07R/351  EURUSD=+0.05R/287  AUDUSD=+0.01R/376  EURJPY=+0.01R/535  USDJPY=-0.02R/424  USDCAD=-0.02R/421  GBPJPY=-0.10R/526  USDCHF=-0.15R/447  AUDJPY=-0.20R/485  NZDUSD=-0.24R/497  EURGBP=-0.40R/554
+   per-fold NET positive: 0/6 folds
+   NET per-trade Sharpe=-0.125  PSR(>0)=0%  DeflatedSR(N=20,SR*=0.098)=0%
+
+VERDICT (net of cost, deflated):
+   NOT GREEN -> net edge thin/neg after cost; DeflatedSR 0%<95% (overfit risk vs 20 trials); only 0/6 folds positive; edge not broad across symbols
+   The PSR-100% gross green did NOT survive honest deflation -> keep iterating, don't deploy.
+
+================================================================
+PATH-A GATES — true forward holdout + cost stress + hour dominance
+================================================================
+
+(1) TRUE FORWARD HOLDOUT  train=87844 (of first 87860)  test=21966 (last 20%, unseen)  split@2026-03-12 03:35:00
+    primary take-all (holdout, mid): trades=21966 avgR=+0.040
+    ML gate NET real spread: trades=950   netAvgR=-0.131 totR=-124.2 win=61% Sharpe=-0.15
+    breadth (holdout NET real spr): 5/11 symbols positive — GBPUSD=+0.18/61  EURUSD=+0.17/51  AUDUSD=+0.08/61  EURJPY=+0.01/108  USDCAD=+0.01/79  AUDJPY=-0.10/88  USDJPY=-0.15/99  GBPJPY=-0.17/105  NZDUSD=-0.17/80  USDCHF=-0.22/87  EURGBP=-0.59/131
+    >>> HOLDOUT VERDICT (real spread): netAvgR=-0.131 -> FAIL (real spread eats it)
+
+(2) SPREAD-GATE SWEEP (CPCV ML-gated, NET of REAL spread) — is a low-spread SUBSET tradeable?
+    entry-spread cost (R units): p10=0.16 p50=0.50 p90=1.56 max=4.30  (1R = the SL barrier; >1 = spread exceeds barrier)
+    keep entry-spread <= p100 (4.30R): n=4903  netAvgR=-0.106 totR=-519.3 win=60%
+    keep entry-spread <= p 75 (1.05R): n=3677  netAvgR=-0.005 totR=-17.3 win=66%
+    keep entry-spread <= p 50 (0.50R): n=2452  netAvgR=+0.007 totR=+16.7 win=63%
+    keep entry-spread <= p 25 (0.25R): n=1226  netAvgR=+0.014 totR=+17.6 win=64%
+    keep entry-spread <= p 10 (0.16R): n=491   netAvgR=+0.010 totR=+4.7 win=60%
+    -> if the LOWEST-spread subset is clearly POSITIVE, a spread gate makes it tradeable (set that as MaxSpreadToBarrier).
+
+(2b) LIMIT-EXECUTION SWEEP (spread-fraction paid; reversion = provide liquidity, don't take it):
+    pay 100% of round-trip spread: netAvgR=-0.106 totR=-519.3 win=60%
+    pay  75% of round-trip spread: netAvgR=+0.056 totR=+273.9 win=70%
+    pay  50% of round-trip spread: netAvgR=+0.218 totR=+1067.1 win=75%
+    pay  25% of round-trip spread: netAvgR=+0.379 totR=+1860.3 win=77%
+    pay   0% of round-trip spread: netAvgR=+0.541 totR=+2653.4 win=77%
+    f=1 = market (current, dead); f=0 = ideal limit fill at mid (+0.54R). Crossover where net>0.05
+    = how good fills must be. If even f=0.5 is clearly positive, a maker/limit EA is worth building.
+
+(3) HOUR BREAKDOWN (CPCV OOS ML-gated, NET real spread) — which hours survive cost?
+    hr 00h(srv): n=2727 netAvgR=-0.144 totR=-391.9  .....
+    hr 01h(srv): n=4    netAvgR=-0.122 totR= -0.5  ....
+    hr 02h(srv): n=1    netAvgR=+0.758 totR= +0.8  ##############################
+    hr 03h(srv): n=2    netAvgR=+0.944 totR= +1.9  #####################################
+    hr 07h(srv): n=3    netAvgR=-0.385 totR= -1.2  ...............
+    hr 09h(srv): n=3    netAvgR=+0.967 totR= +2.9  ######################################
+    hr 11h(srv): n=1    netAvgR=-1.046 totR= -1.0  .........................................
+    hr 12h(srv): n=1    netAvgR=+0.908 totR= +0.9  ####################################
+    hr 13h(srv): n=2    netAvgR=-1.051 totR= -2.1  ..........................................
+    hr 15h(srv): n=3    netAvgR=-1.067 totR= -3.2  ..........................................
+    hr 17h(srv): n=3    netAvgR=-0.429 totR= -1.3  .................
+    hr 18h(srv): n=4    netAvgR=-0.970 totR= -3.9  ......................................
+    hr 19h(srv): n=14   netAvgR=-0.134 totR= -1.9  .....
+    hr 20h(srv): n=63   netAvgR=-0.247 totR=-15.5  .........
+    hr 21h(srv): n=127  netAvgR=-0.177 totR=-22.4  .......
+    hr 22h(srv): n=807  netAvgR=-0.050 totR=-40.4  ..
+    hr 23h(srv): n=1138 netAvgR=-0.036 totR=-40.5  .
+    4/17 hours positive; total netR=-519.3. Broad across hours = robust session effect; concentrated in 1-2 hours = fragile.
+
+(4) MQL5-PORTABLE FEATURES (drop frac-diff fd/mom/volreg/vol) — de-risk ONNX parity:
+    portable ML gate (NET real spr): trades=5122 avgR=-0.136 totR=-696.0 win=59%  breadth=2/11 sym+
+    vs full-feature gate avgR=-0.106  ->  portable WEAKER (frac-diff matters -> ONNX needed)
+
+(5) MODEL TYPE on portable features (CPCV NET real spread) — decide ONNX vs hand-coded MQL5:
+    RF(d5)     trades=5122  netAvgR=-0.136 totR=-696.0 win=59% breadth=2/11
+    Logistic   trades=8     netAvgR=-0.300 totR=  -2.4 win=38% breadth=2/5
+    Tree(d3)   trades=5008  netAvgR=-0.103 totR=-517.4 win=60% breadth=5/11
+    -> if Logistic/Tree ~ RF: hand-code into MQL5 (NO ONNX); if only RF: use skl2onnx.
+EXIT 0

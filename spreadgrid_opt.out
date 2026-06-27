@@ -1,0 +1,19 @@
+WTI-Brent H1 bars: 7319
+
+config                             baskets   win%     PF      net  worstMTM  floors
+------------------------------------------------------------------------------------
+zrev entry z=1.0                       116    55%   2.12   +5.671    -1.370       4
+zrev entry z=2.0                        66    64%   3.17   +7.042    -1.541       4
+PT=0.01 entry z=1.5                    171    99%   2.91   +2.128    -1.293       3
+PT=0.02 entry z=1.5                    141    98%   3.48   +2.827    -1.300       4
+PT=0.035 entry z=1.5                   109    97%   4.00   +3.405    -1.293       4
+PT=0.01 entry z=2.0                    124    98%   1.78   +0.889    -1.298       4
+PT=0.02 entry z=2.0                     97    98%   2.26   +1.418    -1.298       4
+PT=0.035 entry z=2.0                    76    97%   2.81   +2.028    -1.298       4
+PT=0.01 entry z=2.5                     89    99%   1.37   +0.410    -1.299       3
+PT=0.02 entry z=2.5                     72    99%   1.71   +0.788    -1.299       3
+PT=0.035 entry z=2.5                    60    98%   2.24   +1.375    -1.299       3
+
+Goal: profit-target harvest should lift win% toward GridStat's 75-85% (losses only on floor),
+while keeping PF>1.8. Pick the robust high-win + high-PF cell -> that's the EA config.
+EXIT 0

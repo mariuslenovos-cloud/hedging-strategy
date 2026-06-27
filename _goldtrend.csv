@@ -1,0 +1,18 @@
+time,symbol,type,lots,price,profit,reason
+2025.06.24 16:39,GOLD,close_sell,0.01,3300.13,-44.30,SL/trail
+2025.06.27 16:03,GOLD,close_sell,0.01,3264.19,-75.97,SL/trail
+2025.07.28 16:53,GOLD,close_sell,0.01,3310.71,-7.63,SL/trail
+2025.08.04 14:51,GOLD,close_buy,0.01,3369.04,-66.13,SL/trail
+2025.10.21 17:29,GOLD,close_sell,0.01,4134.35,691.11,SL/trail
+2025.10.28 06:26,GOLD,close_sell,0.01,3965.52,-182.46,SL/trail
+2025.11.17 01:08,GOLD,close_sell,0.01,4100.96,81.24,SL/trail
+2025.12.29 17:00,GOLD,close_sell,0.01,4347.81,214.13,SL/trail
+2025.12.31 07:55,GOLD,close_sell,0.01,4278.16,-124.06,SL/trail
+2026.01.29 17:26,GOLD,close_sell,0.01,5254.47,854.27,SL/trail
+2026.02.20 01:13,GOLD,close_sell,0.01,4998.68,139.58,SL/trail
+2026.03.03 16:50,GOLD,close_sell,0.01,5045.37,-6.93,SL/trail
+2026.03.31 04:41,GOLD,close_buy,0.01,4606.73,324.73,SL/trail
+2026.04.14 16:38,GOLD,close_buy,0.01,4798.61,-203.56,SL/trail
+2026.04.28 14:16,GOLD,close_sell,0.01,4597.44,-219.60,SL/trail
+2026.05.06 12:00,GOLD,close_buy,0.01,4708.67,-145.07,SL/trail
+2026.05.15 08:32,GOLD,close_sell,0.01,4576.72,-169.70,SL/trail

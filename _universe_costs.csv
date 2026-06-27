@@ -1,0 +1,45 @@
+sym,group,spread_bps,swap_long,swap_short,swap_mode
+US100Cash,Derivatives,0.86,-4.75,0.53,3
+US500Cash,Derivatives,0.94,-1.17,0.13,3
+US30Cash,Derivatives,1.06,-8.05,0.9,3
+GOLD,Derivatives,1.29,-93.39,10.74,1
+USDJPY,Forex,1.55,2.11,-29.59,1
+EURJPY,Forex,1.73,-5.69,-20.49,1
+EURUSD,Forex,1.75,-8.46,2.04,1
+GBPUSD,Forex,1.81,-3.47,-3.97,1
+GBPJPY,Forex,1.82,3.09,-40.51,1
+USDCAD,Forex,1.98,1.47,-10.13,1
+EURGBP,Forex,2.78,-6.56,1.64,1
+USDCHF,Forex,2.97,3.63,-13.17,1
+AUDJPY,Forex,3.27,5.73,-20.77,1
+AUDUSD,Forex,3.43,-2.13,-4.43,1
+NZDUSD,Forex,4.89,-4.03,0.47,1
+BRENTCash,Derivatives,6.33,0.0,0.0,3
+OILCash,Derivatives,6.61,0.0,0.0,3
+BTCUSD,Cryptocurrencies,7.7,-2659.07,-2659.07,1
+SILVER,Derivatives,10.62,-26.38,2.19,1
+BTCJPY,Cryptocurrencies,12.38,-4260.45,-4260.45,1
+Apple_turbo,Turbo Stocks,17.66,-7.82,1.8199999999999998,0
+AI_INDX,Thematic Indices,24.95,-2.73,-1.62,3
+ETHUSD,Cryptocurrencies,27.91,-69.8,-69.8,1
+HarrisWinners,Thematic Indices,27.98,-0.51,-0.2,3
+BTCEUR,Cryptocurrencies,29.06,-4597.78,-4597.78,1
+TrumpWinners,Thematic Indices,30.38,-0.5,-0.2,3
+BTCGBP,Cryptocurrencies,43.85,-3967.59,-3967.59,1
+BankofNovaScotia,Stocks,46.87,-8.73,-1.27,5
+NGASCash,Derivatives,49.49,0.0,0.0,3
+ETHBTC,Cryptocurrencies,51.78,-2.19,-2.19,1
+SOLUSD,Cryptocurrencies,61.18,-5.61,-5.61,1
+XRPUSD,Cryptocurrencies,61.22,-95.33,-95.33,1
+BankofMontreal,Stocks,69.96,-8.73,-1.27,5
+BarrickGold,Stocks,74.79,-8.73,-1.27,5
+ADAUSD,Cryptocurrencies,79.35,-14.42,-14.42,1
+LTCUSD,Cryptocurrencies,81.87,-3.64,-3.64,1
+ETHEUR,Cryptocurrencies,84.67,-120.7,-120.7,1
+AgnicoEagleMines,Stocks,87.57,-8.73,-1.27,5
+ETHGBP,Cryptocurrencies,98.05,-104.16,-104.16,1
+LINKUSD,Cryptocurrencies,99.75,-0.66,-0.66,1
+DOGEUSD,Cryptocurrencies,120.4,-7.26,-7.26,1
+AVAXUSD,Cryptocurrencies,126.18,-0.56,-0.56,1
+Crypto_10,Thematic Indices,132.86,-8.82,-8.82,3
+AuroraCannabis,Stocks,409.56,-8.73,-1.27,5

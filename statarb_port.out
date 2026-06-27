@@ -1,0 +1,30 @@
+Pulling 26 tickers (Yahoo daily 3y)...
+  got 26/26
+
+pair           pos-changes   totRet  Sharpe    maxDD
+CVX-VLO                 43  +63.53%   +1.56  -10.15%
+AMZN-NVDA               50  +48.83%   +1.04  -18.02%
+JPM-WFC                 45  +30.33%   +0.92  -11.83%
+COP-OXY                 50  +26.66%   +0.81  -17.69%
+JPM-BAC                 51  +19.57%   +0.66  -13.25%
+PFE-MRK                 43  +18.71%   +0.40  -20.76%
+XOM-VLO                 39  +15.57%   +0.40  -14.41%
+USB-PNC                 42   -1.63%   -0.06  -19.32%
+KGC-WPM                 42   -9.32%   -0.19  -33.65%
+VLO-MPC                 39   -8.30%   -0.21  -32.59%
+PSX-VLO                 44   -8.48%   -0.24  -26.47%
+ABBV-LLY                52  -17.01%   -0.35  -34.95%
+GS-MS                   58  -11.46%   -0.37  -22.43%
+AEM-KGC                 38  -14.50%   -0.40  -24.94%
+PNC-TFC                 37  -12.66%   -0.45  -25.86%
+PFE-ABBV                42  -24.06%   -0.47  -55.11%
+AAPL-GOOGL              40  -27.26%   -0.55  -44.97%
+BAC-TFC                 41  -28.98%   -0.72  -37.58%
+
+=== PORTFOLIO (equal-weight 18 cointegrated pairs, net of 8.0bps/leg) ===
+   annualized return +1.1%  vol 3.4%  SHARPE +0.32  maxDD -4.8%  totRet +3.3% over 3.0y
+   avg pairwise corr of pair-PnLs: +0.02  (low = good diversification)
+
+   Sharpe>1 net = a real market-neutral book (uncorrelated to the gold/oil momentum grid).
+   Next: map tickers->MT5 CFDs, verify real CFD spreads, CPCV/holdout, then the pairs EA.
+EXIT 0

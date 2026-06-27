@@ -1,0 +1,385 @@
+//+------------------------------------------------------------------+
+//|  Marius Hedger M5 fib C  --  MT5 PORT (v1.0)                      |
+//|  Faithful MT5 equivalent of the LIVE MT4 fib C that made ~$1,400  |
+//|  in 10 days. Two-sided Goldminer hedge: BUY on green / SELL on    |
+//|  red; Fibonacci ladder per direction (1,1,2,3,5,8.. x base, max   |
+//|  MaxSameTrades); compounding (base lot x floor(bal/CompBase));    |
+//|  session filter; trend gate (ADX + MA-angle). EXITS: basket-trail |
+//|  (activate at +MinFloatToActivate, close all on BasketTrailAmount |
+//|  give-back from peak, both x compound-scale) + same-direction     |
+//|  quick-harvest (close a side when 2+ in that dir and in profit).  |
+//|  Goldminer is EMBEDDED natively (validated 50/50 vs MT4).         |
+//|                                                                   |
+//|  RISK-SAFE levers are DEFAULT-OFF so the base == live behaviour:  |
+//|  UseBasketStop (catastrophe floor), UseDailyTrendFilter,          |
+//|  UseImbalanceLock. We A/B these on together to harden it.         |
+//|  Needs a HEDGING account.                                          |
+//+------------------------------------------------------------------+
+#property copyright "Marius"
+#property version   "1.00"
+#include <Trade/Trade.mqh>
+CTrade trade;
+
+#define BUILD "FIBC-MT5-2026-06-23-G"
+
+//--- sizing
+input double LotSize            = 0.02;
+input bool   UseFibonacci       = true;     // 1,1,2,3,5,8.. per direction (else martingale x LotMultiplier)
+input int    LotMultiplier      = 2;
+input bool   UseCompounding     = true;
+input double CompoundingBase    = 3000.0;   // base lot scales with floor(balance/this)
+input int    MaxSameTrades      = 5;        // max ladder depth per direction
+input int    MaxFibMult         = 0;        // GENTLER LADDER: cap per-leg fib multiplier (0=uncapped 1,1,2,3,5,8..; e.g. 3 -> 1,1,2,3,3,3 = smaller deep legs = smaller floating basket = smaller floor loss, lower PF in chop. The DD dial that works regardless of where legs were placed.)
+//--- RECOVERY SIZING MODE (zone-recovery "break-even guarantee" math vs Fibonacci). A/B lever.
+input int    RecoverySizeMode   = 0;        // 0 = Fibonacci (default, UNCHANGED). 1 = BREAK-EVEN formula: each recovery leg = (RR+1)/RR x (opposite-side lots - same-side lots) x CostBuffer = the MINIMAL leg that makes the basket net-positive at the next favourable move, cost included. Leaner/more principled than Fibonacci -> smaller per-basket tail. (Derived from zone-recovery math; in a one-sided trend it floors to base = uniform lots.)
+input double RecoveryRR         = 3.0;      // mode 1 R:R (higher = gentler leg growth)
+input double RecoveryCostBuffer = 1.1;      // mode 1: size up x this to clear spread+commission+swap (1.1 = +10%)
+//--- entry signal (Goldminer embedded + trend gate)
+input int    grisk              = 7;        // fib C value (drives auto period/bands)
+input int    GM_Period          = 0;        // 0 = auto (grisk*2+3)
+input double GM_UpperBand        = 0;       // 0 = auto (grisk+67)
+input double GM_LowerBand        = 0;       // 0 = auto (33-grisk)
+input double GM_GapMult          = 2.0;
+input int    GM_GapMode          = 0;
+input double GM_FastMult         = 4.6;
+input int    goldminershift      = 1;
+input int    MA_Period           = 20;
+input double MA_Angle_Threshold  = 20.0;
+input int    ADX_Period          = 14;
+input double ADX_Threshold       = 25.0;
+input int    tradesperbar        = 1;
+//--- session
+input bool   UseSessionFilter    = true;
+input int    SessionStartHour     = 9;
+input int    SessionEndHour       = 23;
+//--- exits
+input bool   UseBasketTrail       = true;
+input double MinFloatToActivate   = 80.0;
+input double BasketTrailAmount     = 15.0;
+input bool   UseBuySellProfitThreshold = true;  // same-dir quick harvest
+input double BuySellProfitThreshold     = 50.0; // in POINTS*point (gold ~ $0.50) -- faithful to live
+input double BuySellProfitThresholdInCurrency = 0; // >0 overrides to a $ threshold
+//=== RISK-SAFE levers (DEFAULT OFF -> base == live; we A/B these on) ===
+input bool   UseBasketStop        = true;  // catastrophe floor: close ALL if book float <= -BasketMaxLossPct% balance
+input double BasketMaxLossPct     = 30.0;
+input bool   UseDailyTrendFilter  = false;  // only enter WITH the D1 trend (cuts counter-trend tax)
+input int    DailyMA_Period       = 50;
+input bool   UseImbalanceLock     = true;  // stop adding to a side that outnumbers the other by >= ImbalanceThreshold AND is in loss
+input int    ImbalanceThreshold   = 2;
+input bool   UseMaxBasketLots     = false;  // cap TOTAL open lots -> bounds the Fibonacci martingale = caps the max basket loss (the DD tail)
+input double MaxBasketLotsTotal    = 0.30;
+//--- VOL-REGIME filter (AFML Ch.17; the proven MT4 DD-cut: (a)+(c) cut fib C DD 59%->38%, session 19k). DEFAULT OFF.
+input bool   UseVolRegimeFilter   = true;  // master switch
+input int    VolATRFastPeriod     = 5;      // fast ATR(D1) = current regime
+input int    VolATRSlowPeriod     = 60;     // slow ATR(D1) = baseline regime
+input double VolRegimeMult         = 2.5;   // HOT when ATR_fast/ATR_slow >= this
+input bool   VolBlockAllEntries    = true;  // (a) HOT: block ALL new entries (sit out the storm)
+input bool   VolBlockStacking      = false; // (b) HOT: block only ADDS (allow 1st entry/dir)
+input bool   VolScaledFloor        = true;  // (c) HOT: WIDEN the catastrophe floor so baskets ride to recovery
+input double VolFloorMaxMult        = 2.0;  // (c) cap: floor% widens up to this x BasketMaxLossPct (30%->60%)
+//--- OVEREXTENSION filter (AFML Ch.17; the DIRECTIONAL-DRIFT analog of the vol filter -- catches the slow-drift
+//    structural break the vol-EXPANSION filter MISSES. gridregime.py (19o): dist=|close-D1EMA|/ATR(D1,60) corr
+//    -0.61 with gold deep-MAE. Stops growing the fib ladder into the extreme = caps the deep-leg tail WITHOUT
+//    cutting recoverable baskets. DEFAULT OFF -> base unchanged.)
+input bool   UseOverextFilter     = false;  // master switch
+input double OverextATRMult        = 4.5;   // HOT when |close - D1EMA(DailyMA_Period)| / ATR(D1,VolATRSlowPeriod) >= this (gold ~90th pctile)
+input bool   OverextBlockAdds      = true;  // true: block only ADDS when stretched (cap the deep fib legs, keep base flow); false: block ALL entries
+//--- TWO-ENGINE LAB: per-bar floating-equity log (the harvester half of the harvester+trend pairing). DEFAULT OFF -> no files in live.
+input bool   UseEquityLog         = false;          // research: write time,balance,equity per bar to EquityLogFile (Common\Files)
+input string EquityLogFile        = "fibc_equity.csv";
+//--- FIRST-ENTRY PROBABILITY GATE (the GridStat selectivity = source of its 20% DD vs fib C's 50%).
+//    Only START a basket (first leg on a side) when the entry fingerprint DIR|SESSION|ATR-regime has
+//    historical win-rate >= threshold in the stats DB. Recovery legs (adds) BYPASS it. DEFAULT OFF.
+//    Attacks the tail AT SOURCE (don't start bad baskets) -> preserves the recovery edge (vs floor-cuts).
+input bool   UseFirstEntryGate    = false;
+input string FirstGateStatsCSV    = "gridstat_setups_gold.csv";  // GridStat shadow DB (Common\Files); same fingerprint
+input double FirstGateMinWinRate  = 0.55;   // win-rate threshold for BUY starts
+input double FirstGateSellMinWinRate = 0.0; // SELL-only threshold (0 = use FirstGateMinWinRate). Gold longs >> shorts -> set this higher (e.g. 0.65) to cut weak shorts.
+input int    FirstGateMinSamples  = 10;
+//--- misc
+input string CommentText          = "MyEA";
+input int    MagicSeed            = 0;
+
+double   point;
+long     MagicNumber=0;
+datetime lastBarTime=0;
+int      tradesThisBar=0;
+double   peakBasketFloat=0;
+int      hMA, hADX, hMA_D1, hATRfast, hATRslow;
+int      hATR_cur, hATR_avg;   // for the first-entry fingerprint (match GridStat: M5 ATR 20 / 100)
+int      gEqHandle=INVALID_HANDLE;
+
+//+------------------------------------------------------------------+
+int OnInit()
+{
+   point = (_Digits==3 || _Digits==5) ? _Point*10 : _Point;
+   hMA   = iMA(_Symbol, PERIOD_CURRENT, MA_Period, 0, MODE_EMA, PRICE_CLOSE);
+   hADX  = iADX(_Symbol, PERIOD_CURRENT, ADX_Period);
+   hMA_D1= iMA(_Symbol, PERIOD_D1, DailyMA_Period, 0, MODE_EMA, PRICE_CLOSE);
+   hATRfast= iATR(_Symbol, PERIOD_D1, VolATRFastPeriod);
+   hATRslow= iATR(_Symbol, PERIOD_D1, VolATRSlowPeriod);
+   hATR_cur= iATR(_Symbol, PERIOD_CURRENT, 20);   // fingerprint ATR (match GridStat)
+   hATR_avg= iATR(_Symbol, PERIOD_CURRENT, 100);
+   if(hMA==INVALID_HANDLE||hADX==INVALID_HANDLE||hMA_D1==INVALID_HANDLE||hATRfast==INVALID_HANDLE||hATRslow==INVALID_HANDLE||hATR_cur==INVALID_HANDLE||hATR_avg==INVALID_HANDLE){ Print("handle fail"); return(INIT_FAILED); }
+   MagicNumber = (MagicSeed!=0)?MagicSeed:GenMagic("MyEA",_Symbol,(int)Period());
+   trade.SetExpertMagicNumber(MagicNumber);
+   trade.SetDeviationInPoints(20);
+   Print("============================================================");
+   Print("MARIUS HEDGER FIB C ",BUILD," | ",_Symbol," | Magic=",MagicNumber);
+   Print("CONFIG | RecoverySizeMode=",RecoverySizeMode,(RecoverySizeMode==1?" (BREAK-EVEN RR="+DoubleToString(RecoveryRR,1)+"/buf"+DoubleToString(RecoveryCostBuffer,2)+")":" (Fibonacci)"));
+   Print("CONFIG | FirstEntryGate=",UseFirstEntryGate,(UseFirstEntryGate?" (BUY>="+DoubleToString(FirstGateMinWinRate,2)+" SELL>="+DoubleToString(FirstGateSellMinWinRate>0?FirstGateSellMinWinRate:FirstGateMinWinRate,2)+" n>="+IntegerToString(FirstGateMinSamples)+" DB="+FirstGateStatsCSV+")":""));
+   Print("CONFIG | grisk=",grisk," Fib=",UseFibonacci,"/MaxFibMult=",MaxFibMult," Compound=",UseCompounding,
+         " MaxSame=",MaxSameTrades," Trail=",UseBasketTrail,"/",DoubleToString(MinFloatToActivate,0),
+         "/",DoubleToString(BasketTrailAmount,0)," QuickHarvest=",UseBuySellProfitThreshold);
+   Print("CONFIG | SAFETY: BasketStop=",UseBasketStop,"/",DoubleToString(BasketMaxLossPct,0),
+         "% D1filter=",UseDailyTrendFilter," ImbalanceLock=",UseImbalanceLock,"/",ImbalanceThreshold,
+         " MaxLots=",UseMaxBasketLots,"/",DoubleToString(MaxBasketLotsTotal,2));
+   Print("CONFIG | BREAK-DEFENSE: VolFilter=",UseVolRegimeFilter,"/",DoubleToString(VolRegimeMult,1),
+         " (blockAll=",VolBlockAllEntries," scaledFloor=",VolScaledFloor,") | OverextFilter=",UseOverextFilter,
+         "/",DoubleToString(OverextATRMult,1)," (blockAdds=",OverextBlockAdds,")");
+   Print("============================================================");
+   if(UseEquityLog){
+      gEqHandle=FileOpen(EquityLogFile,FILE_WRITE|FILE_CSV|FILE_COMMON|FILE_ANSI,',');
+      if(gEqHandle!=INVALID_HANDLE) FileWrite(gEqHandle,"time","balance","equity");
+      else Print("EquityLog open FAILED: ",EquityLogFile);
+   }
+   return(INIT_SUCCEEDED);
+}
+void OnDeinit(const int reason){ if(gEqHandle!=INVALID_HANDLE){ FileClose(gEqHandle); gEqHandle=INVALID_HANDLE; } }
+void LogEquity(){
+   if(!UseEquityLog || gEqHandle==INVALID_HANDLE) return;
+   FileWrite(gEqHandle,TimeToString(TimeCurrent(),TIME_DATE|TIME_SECONDS),
+             DoubleToString(AccountInfoDouble(ACCOUNT_BALANCE),2),
+             DoubleToString(AccountInfoDouble(ACCOUNT_EQUITY),2));
+   FileFlush(gEqHandle);
+}
+int GenMagic(string ea,string sym,int tf){ int h=0; string s=ea+sym+IntegerToString(tf); for(int i=0;i<StringLen(s);i++) h+=StringGetCharacter(s,i)*(i+1); return h%100000; }
+
+double RB(int hd,int b,int sh){ double a[]; if(CopyBuffer(hd,b,sh,1,a)<=0) return(0); return(a[0]); }
+int BarHour(datetime t){ MqlDateTime d; TimeToStruct(t,d); return(d.hour); }
+
+//--- FIRST-ENTRY GATE: fingerprint + win-rate lookup (ported from GridStat -> same DB/fingerprint) ---
+string ClassifySetup(int dir)
+{
+   string d   = (dir==POSITION_TYPE_BUY) ? "BUY" : "SELL";
+   int    hr  = BarHour(TimeCurrent());
+   string hrB = (hr<9)?"HR_ASIA":(hr<14)?"HR_LDN":(hr<18)?"HR_OVL":"HR_NY";
+   double an  = RB(hATR_cur,0,1), aa = RB(hATR_avg,0,1);
+   string atrB= (aa==0)?"ATR_NA":(an>aa*1.3)?"ATR_EXP":(an<aa*0.7)?"ATR_COMP":"ATR_NORM";
+   return(d+"|"+hrB+"|"+atrB);
+}
+bool LookupFirstGateStats(string setupKey, double &winRate, int &samples)
+{
+   int fh=FileOpen(FirstGateStatsCSV, FILE_READ|FILE_CSV|FILE_COMMON|FILE_ANSI, ',');
+   if(fh==INVALID_HANDLE){ winRate=0; samples=0; return false; }
+   int ncol=0, rIdx=-1;
+   while(!FileIsEnding(fh)){ string c=FileReadString(fh); if(c=="r_multiple") rIdx=ncol; ncol++; if(FileIsLineEnding(fh)) break; }
+   if(rIdx<0||ncol<=0){ FileClose(fh); winRate=0; samples=0; return false; }
+   int wins=0,total=0;
+   while(!FileIsEnding(fh)){
+      string key=""; double r=0; bool any=false;
+      for(int c=0;c<ncol && !FileIsEnding(fh);c++){ string cell=FileReadString(fh); any=true; if(c==0) key=cell; if(c==rIdx) r=StringToDouble(cell); }
+      if(!any) break;
+      if(key==setupKey){ total++; if(r>0) wins++; }
+   }
+   FileClose(fh);
+   samples=total; winRate=(total>0)?(double)wins/total:0.0;
+   return(total>0);
+}
+
+//--- EMBEDDED GOLDMINER (native MQL5, validated 50/50 vs MT4) -------------------
+double WprValue(int period,int shift)
+{
+   int hhs=iHighest(_Symbol,PERIOD_CURRENT,MODE_HIGH,period,shift);
+   int lls=iLowest(_Symbol,PERIOD_CURRENT,MODE_LOW,period,shift);
+   if(hhs<0||lls<0) return(50);
+   double hh=iHigh(_Symbol,PERIOD_CURRENT,hhs), ll=iLow(_Symbol,PERIOD_CURRENT,lls), cl=iClose(_Symbol,PERIOD_CURRENT,shift);
+   double wpr=(hh-ll!=0)? -100.0*(hh-cl)/(hh-ll) : 0;
+   return(100.0-MathAbs(wpr));
+}
+double GMValueAt(int j)
+{
+   double avg=0; for(int k=j;k<=j+9;k++) avg+=MathAbs(iHigh(_Symbol,PERIOD_CURRENT,k)-iLow(_Symbol,PERIOD_CURRENT,k)); avg/=10.0;
+   bool gap=false,fast=false;
+   for(int k=j;k<j+9 && !gap;k++){ double jp=(GM_GapMode==1)?MathAbs(iClose(_Symbol,PERIOD_CURRENT,k)-iClose(_Symbol,PERIOD_CURRENT,k+1)):MathAbs(iOpen(_Symbol,PERIOD_CURRENT,k)-iClose(_Symbol,PERIOD_CURRENT,k+1)); if(jp>=GM_GapMult*avg) gap=true; }
+   for(int k=j;k<j+6 && !fast;k++) if(MathAbs(iClose(_Symbol,PERIOD_CURRENT,k+3)-iClose(_Symbol,PERIOD_CURRENT,k))>=GM_FastMult*avg) fast=true;
+   int period=(GM_Period>0)?GM_Period:(grisk*2+3); if(gap) period=3; if(fast) period=4;
+   return(WprValue(period,j));
+}
+// returns +1 BUY (green), -1 SELL (red), 0 none
+int GoldminerSignal()
+{
+   double upper=(GM_UpperBand>0)?GM_UpperBand:(grisk+67);
+   double lower=(GM_LowerBand>0)?GM_LowerBand:(33-grisk);
+   int LB=40; double val[]; ArrayResize(val,LB);
+   for(int k=0;k<LB;k++) val[k]=GMValueAt(goldminershift+k);
+   int li=1;
+   if(val[0]>upper){ while(li<LB-1 && val[li]>=lower && val[li]<=upper) li++; if(val[li]<lower) return(+1); }
+   else if(val[0]<lower){ while(li<LB-1 && val[li]>=lower && val[li]<=upper) li++; if(val[li]>upper) return(-1); }
+   return(0);
+}
+
+double VolRegimeRatio(){ double f=RB(hATRfast,0,0), s=RB(hATRslow,0,0); return (s>0)? f/s : 1.0; }
+bool   IsVolRegimeHot(){ return UseVolRegimeFilter && VolRegimeRatio()>=VolRegimeMult; }
+double DistD1MA(){ double ema=RB(hMA_D1,0,0), atr=RB(hATRslow,0,0); if(atr<=0) return 0; return MathAbs(iClose(_Symbol,PERIOD_CURRENT,0)-ema)/atr; }
+bool   IsOverextended(){ return UseOverextFilter && DistD1MA()>=OverextATRMult; }
+double GetMAAngle(){ double m0=RB(hMA,0,0), m1=RB(hMA,0,5); double slope=(m0-m1)/(5*point); return(MathArctan(slope)*180.0/M_PI); }
+bool IsTrendDetected(){ double adx=RB(hADX,0,0); return(adx>ADX_Threshold && MathAbs(GetMAAngle())>MA_Angle_Threshold); }
+bool D1Bull(){ return RB(hMA_D1,0,0)>RB(hMA_D1,0,1); }
+
+int CountOpen(int dir)  // dir: POSITION_TYPE_BUY / _SELL
+{
+   int c=0; for(int i=PositionsTotal()-1;i>=0;i--){ ulong t=PositionGetTicket(i); if(t==0||!PositionSelectByTicket(t))continue;
+      if(PositionGetInteger(POSITION_MAGIC)!=MagicNumber||PositionGetString(POSITION_SYMBOL)!=_Symbol)continue;
+      if(PositionGetInteger(POSITION_TYPE)==dir) c++; }
+   return c;
+}
+double SideProfit(int dir)
+{
+   double p=0; for(int i=PositionsTotal()-1;i>=0;i--){ ulong t=PositionGetTicket(i); if(t==0||!PositionSelectByTicket(t))continue;
+      if(PositionGetInteger(POSITION_MAGIC)!=MagicNumber||PositionGetString(POSITION_SYMBOL)!=_Symbol)continue;
+      if(PositionGetInteger(POSITION_TYPE)==dir) p+=PositionGetDouble(POSITION_PROFIT)+PositionGetDouble(POSITION_SWAP); }
+   return p;
+}
+double SideLots(int dir)  // sum of OPEN lots on one side (for break-even recovery sizing)
+{
+   double l=0; for(int i=PositionsTotal()-1;i>=0;i--){ ulong t=PositionGetTicket(i); if(t==0||!PositionSelectByTicket(t))continue;
+      if(PositionGetInteger(POSITION_MAGIC)!=MagicNumber||PositionGetString(POSITION_SYMBOL)!=_Symbol)continue;
+      if(PositionGetInteger(POSITION_TYPE)==dir) l+=PositionGetDouble(POSITION_VOLUME); }
+   return l;
+}
+double BookFloat(){ return SideProfit(POSITION_TYPE_BUY)+SideProfit(POSITION_TYPE_SELL); }
+double TotalOpenLots(){ double l=0; for(int i=PositionsTotal()-1;i>=0;i--){ ulong t=PositionGetTicket(i); if(t==0||!PositionSelectByTicket(t))continue; if(PositionGetInteger(POSITION_MAGIC)!=MagicNumber||PositionGetString(POSITION_SYMBOL)!=_Symbol)continue; l+=PositionGetDouble(POSITION_VOLUME); } return l; }
+
+double LotScaleInt(){ if(!UseCompounding||CompoundingBase<=0) return 1.0; return MathMax(1.0,MathFloor(AccountInfoDouble(ACCOUNT_BALANCE)/CompoundingBase)); }
+double CalculateLot(int dir)
+{
+   double baseLot=LotSize;
+   if(UseCompounding && CompoundingBase>0){
+      double scaled=MathFloor(AccountInfoDouble(ACCOUNT_BALANCE)/CompoundingBase*LotSize/0.01)*0.01;
+      baseLot=MathMax(LotSize,scaled);
+   }
+   int cnt=CountOpen(dir);
+   if(cnt<=0) return NormalizeDouble(baseLot,2);          // first leg = base (both modes)
+
+   if(RecoverySizeMode==1)
+   {
+      // BREAK-EVEN GUARANTEE (zone-recovery math): minimal leg that makes the basket net-positive
+      // at the next favourable move, cost included. = (RR+1)/RR x (oppositeLots - sameLots) x buffer.
+      int opp = (dir==POSITION_TYPE_BUY) ? POSITION_TYPE_SELL : POSITION_TYPE_BUY;
+      double factor = (RecoveryRR + 1.0) / MathMax(0.1, RecoveryRR);
+      double lot = factor * (SideLots(opp) - SideLots(dir)) * RecoveryCostBuffer;
+      if(lot < baseLot) lot = baseLot;                    // one-sided / low-imbalance -> base (gentlest)
+      return NormalizeDouble(lot,2);
+   }
+
+   // FIBONACCI (default, unchanged)
+   if(UseFibonacci){ int fib[10]={1,1,2,3,5,8,13,21,34,55}; int idx=(int)MathMin(cnt,9); int m=fib[idx]; if(MaxFibMult>0) m=(int)MathMin(m,MaxFibMult); return NormalizeDouble(baseLot*m,2); }
+   return NormalizeDouble(baseLot*MathPow(LotMultiplier,cnt),2);
+}
+
+void CloseSide(int dir)
+{
+   for(int i=PositionsTotal()-1;i>=0;i--){ ulong t=PositionGetTicket(i); if(t==0||!PositionSelectByTicket(t))continue;
+      if(PositionGetInteger(POSITION_MAGIC)!=MagicNumber||PositionGetString(POSITION_SYMBOL)!=_Symbol)continue;
+      if(PositionGetInteger(POSITION_TYPE)==dir) trade.PositionClose(t); }
+}
+void CloseAll(){ CloseSide(POSITION_TYPE_BUY); CloseSide(POSITION_TYPE_SELL); }
+
+//--- basket trail (every tick) + catastrophe floor (safety, default off) -------
+void CheckBasketTrail()
+{
+   double lotScale=LotScaleInt();
+   double effMin=MinFloatToActivate*lotScale, effTrail=BasketTrailAmount*lotScale;
+   double tot=BookFloat();
+   // SAFETY: catastrophe floor (+ vol-scaled widening (c): in a hot regime give baskets room to revert)
+   if(UseBasketStop){
+      double floorPct=BasketMaxLossPct;
+      if(UseVolRegimeFilter && VolScaledFloor){ double r=VolRegimeRatio(); if(r>1.0) floorPct*=MathMax(1.0,MathMin(r,VolFloorMaxMult)); }
+      if(tot <= -floorPct/100.0*AccountInfoDouble(ACCOUNT_BALANCE)){
+         Print("BASKET STOP fired float=",DoubleToString(tot,2)," floorPct=",DoubleToString(floorPct,1)); CloseAll(); peakBasketFloat=0; return;
+      }
+   }
+   if(UseBasketTrail && tot>=effMin){
+      if(tot>peakBasketFloat) peakBasketFloat=tot;
+      if(tot<=peakBasketFloat-effTrail){ Print("BasketTrail fired float=",DoubleToString(tot,2)," peak=",DoubleToString(peakBasketFloat,2)); CloseAll(); peakBasketFloat=0; }
+      return;
+   }
+   peakBasketFloat=0;
+}
+//--- same-direction quick harvest (called after a new entry, like live) --------
+void ManageTradeClosures()
+{
+   double bp=SideProfit(POSITION_TYPE_BUY); int bc=CountOpen(POSITION_TYPE_BUY);
+   double sp=SideProfit(POSITION_TYPE_SELL); int sc=CountOpen(POSITION_TYPE_SELL);
+   double eff=(BuySellProfitThresholdInCurrency>0)?BuySellProfitThresholdInCurrency:(BuySellProfitThreshold*point);
+   if(UseBuySellProfitThreshold && bc>=2 && bp>=eff) CloseSide(POSITION_TYPE_BUY);
+   if(UseBuySellProfitThreshold && sc>=2 && sp>=eff) CloseSide(POSITION_TYPE_SELL);
+}
+
+void OpenTrade(int dir)  // dir +1 buy / -1 sell
+{
+   int ptype=(dir>0)?POSITION_TYPE_BUY:POSITION_TYPE_SELL;
+   if(CountOpen(ptype)>=MaxSameTrades) return;
+   // FIRST-ENTRY PROBABILITY GATE: only START a basket on this side from a high-win-rate fingerprint.
+   // Recovery legs (CountOpen>0) bypass -> the recovery edge is preserved; we just refuse bad STARTS.
+   if(UseFirstEntryGate && CountOpen(ptype)==0)
+   {
+      double wr=0; int ns=0; string key=ClassifySetup(ptype);
+      if(!LookupFirstGateStats(key, wr, ns)) return;                       // unknown fingerprint -> don't start
+      double thr = FirstGateMinWinRate;                                    // per-direction threshold
+      if(ptype==POSITION_TYPE_SELL && FirstGateSellMinWinRate>0) thr = FirstGateSellMinWinRate;  // gate weak shorts harder
+      if(ns < FirstGateMinSamples || wr < thr) return;                     // low-probability -> don't start
+   }
+   // SAFETY: imbalance lock -- don't add to a losing side that outnumbers the other
+   if(UseImbalanceLock){
+      int me=CountOpen(ptype), opp=CountOpen(dir>0?POSITION_TYPE_SELL:POSITION_TYPE_BUY);
+      double myP=SideProfit(ptype);
+      if(me-opp>=ImbalanceThreshold && myP<0) return;
+   }
+   double lot=CalculateLot(ptype);
+   if(UseMaxBasketLots && TotalOpenLots()+lot > MaxBasketLotsTotal) return;  // cap the Fibonacci ladder = cap the loss tail
+   trade.SetTypeFillingBySymbol(_Symbol);
+   bool ok=(dir>0)?trade.Buy(lot,_Symbol,0,0,0,CommentText):trade.Sell(lot,_Symbol,0,0,0,CommentText);
+   if(ok){ tradesThisBar++; ManageTradeClosures(); }
+}
+
+//+------------------------------------------------------------------+
+void OnTick()
+{
+   if(iTime(_Symbol,PERIOD_CURRENT,0)!=lastBarTime){ lastBarTime=iTime(_Symbol,PERIOD_CURRENT,0); tradesThisBar=0; LogEquity(); }
+
+   CheckBasketTrail();   // every tick
+
+   if(UseSessionFilter){
+      int hr=BarHour(TimeCurrent());
+      bool inS=(SessionStartHour<SessionEndHour)?(hr>=SessionStartHour&&hr<SessionEndHour):(hr>=SessionStartHour||hr<SessionEndHour);
+      if(!inS) return;
+   }
+   bool hasOpen=(CountOpen(POSITION_TYPE_BUY)>0||CountOpen(POSITION_TYPE_SELL)>0);
+   if(!IsTrendDetected() && !hasOpen) return;
+   if(tradesThisBar>=tradesperbar) return;
+
+   int sig=GoldminerSignal();
+   if(sig==0) return;
+   // SAFETY: D1 trend filter
+   if(UseDailyTrendFilter){
+      if(sig>0 && !D1Bull()) return;
+      if(sig<0 &&  D1Bull()) return;
+   }
+   // SAFETY: vol-regime filter -- (a) block all entries / (b) block only adds, while regime is HOT
+   if(UseVolRegimeFilter && IsVolRegimeHot()){
+      if(VolBlockAllEntries) return;
+      int ptype=(sig>0)?POSITION_TYPE_BUY:POSITION_TYPE_SELL;
+      if(VolBlockStacking && CountOpen(ptype)>0) return;
+   }
+   // SAFETY: overextension filter -- the slow-drift structural break (vol filter's blind spot).
+   // Stop growing the fib ladder when price is stretched far from the D1 mean = where the break catches it.
+   if(UseOverextFilter && IsOverextended()){
+      if(!OverextBlockAdds) return;                                   // block ALL entries
+      int pt=(sig>0)?POSITION_TYPE_BUY:POSITION_TYPE_SELL;
+      if(CountOpen(pt)>0) return;                                     // block only ADDS (the deep fib legs)
+   }
+   OpenTrade(sig);
+}
+//+------------------------------------------------------------------+

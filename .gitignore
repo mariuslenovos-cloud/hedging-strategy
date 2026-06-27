@@ -1,0 +1,14 @@
+.env
+artifacts/
+__pycache__/
+*.pyc
+*.pyo
+.venv/
+venv/
+analysis_data/
+live_journal.json
+
+# temp/junk + large regenerable caches
+*.tmp
+~$*
+*.pkl

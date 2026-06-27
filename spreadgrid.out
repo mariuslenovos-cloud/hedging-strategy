@@ -1,0 +1,9 @@
+WTI-Brent H1 bars: 7319
+
+=== WTI-Brent SPREAD-GRID (H1, fade z>=1.0, ladder [1.0, 2.0, 3.0, 4.0], harvest |z|<=0.25, floor 6.0, 6.0bps/leg) ===
+  baskets=116  net=+5.6760 (log-spread units)  avg=+0.0489  win=55%
+  PF=2.13  worst single-basket MTM=-1.3704  floor-hits=4
+  z range: min=-11.6 max=6.3  (|z| rarely exceeds floor 6.0 = bounded, grid-safe)
+  net +567.6% of one spread-unit notional over 7319 H1 bars (~14 months)
+  PF>1.5 + bounded z (no floor hits) = the synthesis works -> build the MT5 two-leg spread-grid EA.
+EXIT 0
