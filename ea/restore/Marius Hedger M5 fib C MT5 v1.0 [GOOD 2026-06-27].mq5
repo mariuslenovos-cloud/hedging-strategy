@@ -20,7 +20,7 @@
 #include <Trade/Trade.mqh>
 CTrade trade;
 
-#define BUILD "FIBC-MT5-2026-06-27-H"
+#define BUILD "FIBC-MT5-2026-06-23-G"
 
 //--- sizing
 input double LotSize            = 0.02;
@@ -96,18 +96,6 @@ input string FirstGateStatsCSV    = "gridstat_setups_gold.csv";  // GridStat sha
 input double FirstGateMinWinRate  =    0.55;   // win-rate threshold for BUY starts
 input double FirstGateSellMinWinRate = 0.65; // SELL-only threshold (0 = use FirstGateMinWinRate). Gold longs >> shorts -> set this higher (e.g. 0.65) to cut weak shorts.
 input int    FirstGateMinSamples  = 10;
-//--- RECOVERY HEDGE (the validated MT4 win, session 19v): when the book is deep underwater,
-//    STOP feeding the loser and RIDE the winning (trend) side on every Goldminer signal until
-//    the whole book recovers to +target. Averaging-in recovers mean-reversion; riding the winner
-//    recovers sustained trends (the deep-basket cause). Overrides D1/session/imbalance/MaxSameTrades
-//    for the WINNING side only. Catastrophe floor stays the backstop. DEFAULT OFF -> base unchanged.
-input bool   UseRecoveryHedge     = false;
-input double HedgeTriggerLoss     = 300.0;  // arm when book float <= -this ($)
-input double HedgeTriggerPctBal   = 0.0;    // >0: arm when book float <= -this%% of balance (overrides HedgeTriggerLoss; deposit-portable). Validated 3.
-input double RecoveryTargetUSD    = 40.0;   // close the WHOLE book once it recovers to +this ($)
-input bool   UseRecoveryTrail     = false;  // [opt1] once recovered to +target, TRAIL the winner instead of flat-closing (+4%% on gold)
-input double RecoveryTrailGiveback = 20.0;  // give-back ($) from the recovery peak that closes (locks >= effective target)
-input double RecoveryTargetPct    = 0.0;    // [opt2] >0: scale target to this %% of the DEEPEST loss rescued (max w/ RecoveryTargetUSD). +3%% on gold at 10.
 //--- misc
 input string CommentText          = "MyEA";
 input int    MagicSeed            = 0;
@@ -116,11 +104,6 @@ double   point;
 long     MagicNumber=0;
 datetime lastBarTime=0;
 int      tradesThisBar=0;
-bool     g_recovering=false;
-int      g_recoverWinDir=-1;     // POSITION_TYPE_BUY / _SELL = the side we ride to recover
-bool     g_recoverArmed=false;
-double   g_recoverPeak=0;
-double   g_recoverDeepest=0;
 double   peakBasketFloat=0;
 int      hMA, hADX, hMA_D1, hATRfast, hATRslow;
 int      hATR_cur, hATR_avg;   // for the first-entry fingerprint (match GridStat: M5 ATR 20 / 100)
@@ -303,54 +286,8 @@ void CloseSide(int dir)
 }
 void CloseAll(){ CloseSide(POSITION_TYPE_BUY); CloseSide(POSITION_TYPE_SELL); }
 
-//--- RECOVERY HEDGE: arm when deep underwater, ride the winning side, exit the whole book in profit.
-//    Sets g_recovering. The catastrophe floor (in CheckBasketTrail) stays the backstop.
-void CheckRecoveryHedge()
-{
-   if(!UseRecoveryHedge){ g_recovering=false; return; }
-   double bal=AccountInfoDouble(ACCOUNT_BALANCE);
-   double bookFloat=BookFloat();
-
-   if(g_recovering)
-   {
-      // safety: if the whole book got closed elsewhere, end the rescue cleanly
-      if(CountOpen(POSITION_TYPE_BUY)==0 && CountOpen(POSITION_TYPE_SELL)==0){
-         g_recovering=false; g_recoverWinDir=-1; g_recoverArmed=false; g_recoverPeak=0; g_recoverDeepest=0; return;
-      }
-      if(bookFloat < g_recoverDeepest) g_recoverDeepest=bookFloat;        // track deepest loss this rescue
-      double effTarget = (RecoveryTargetPct>0) ? MathMax(RecoveryTargetUSD,(RecoveryTargetPct/100.0)*(-g_recoverDeepest)) : RecoveryTargetUSD;
-      if(UseRecoveryTrail)
-      {
-         if(bookFloat>=effTarget){ if(!g_recoverArmed) g_recoverArmed=true; if(bookFloat>g_recoverPeak) g_recoverPeak=bookFloat; }
-         if(g_recoverArmed){
-            double exitLvl=MathMax(effTarget, g_recoverPeak-RecoveryTrailGiveback);
-            if(bookFloat<=exitLvl && bookFloat<g_recoverPeak){
-               Print("RECOVERY TRAIL exit: book=+",DoubleToString(bookFloat,2)," peak +",DoubleToString(g_recoverPeak,2)," tgt ",DoubleToString(effTarget,0));
-               CloseAll(); g_recovering=false; g_recoverWinDir=-1; g_recoverArmed=false; g_recoverPeak=0; g_recoverDeepest=0; peakBasketFloat=0;
-            }
-         }
-         return;
-      }
-      if(bookFloat>=effTarget){
-         Print("RECOVERY COMPLETE: book=+",DoubleToString(bookFloat,2)," (tgt ",DoubleToString(effTarget,0),")");
-         CloseAll(); g_recovering=false; g_recoverWinDir=-1; g_recoverDeepest=0; peakBasketFloat=0;
-      }
-      return;
-   }
-
-   // not recovering -> check the arm trigger
-   double trigger = (HedgeTriggerPctBal>0) ? (HedgeTriggerPctBal/100.0)*bal : HedgeTriggerLoss;
-   if(trigger>0 && bookFloat<=-trigger)
-   {
-      double bp=SideProfit(POSITION_TYPE_BUY), sp=SideProfit(POSITION_TYPE_SELL);
-      g_recoverWinDir = (bp>=sp) ? POSITION_TYPE_BUY : POSITION_TYPE_SELL;  // ride the LESS-negative (trend) side
-      g_recovering=true; g_recoverArmed=false; g_recoverPeak=0; g_recoverDeepest=bookFloat;
-      Print("RECOVERY ARMED: book=",DoubleToString(bookFloat,2)," trigger=-",DoubleToString(trigger,2)," winDir=",(g_recoverWinDir==POSITION_TYPE_BUY?"BUY":"SELL"));
-   }
-}
-
 //--- basket trail (every tick) + catastrophe floor (safety, default off) -------
-void CheckBasketTrail(bool recovering=false)
+void CheckBasketTrail()
 {
    double lotScale=LotScaleInt();
    double effMin=MinFloatToActivate*lotScale, effTrail=BasketTrailAmount*lotScale;
@@ -360,11 +297,9 @@ void CheckBasketTrail(bool recovering=false)
       double floorPct=BasketMaxLossPct;
       if(UseVolRegimeFilter && VolScaledFloor){ double r=VolRegimeRatio(); if(r>1.0) floorPct*=MathMax(1.0,MathMin(r,VolFloorMaxMult)); }
       if(tot <= -floorPct/100.0*AccountInfoDouble(ACCOUNT_BALANCE)){
-         Print("BASKET STOP fired float=",DoubleToString(tot,2)," floorPct=",DoubleToString(floorPct,1)); CloseAll(); peakBasketFloat=0;
-         g_recovering=false; g_recoverWinDir=-1; g_recoverArmed=false; g_recoverPeak=0; g_recoverDeepest=0; return;
+         Print("BASKET STOP fired float=",DoubleToString(tot,2)," floorPct=",DoubleToString(floorPct,1)); CloseAll(); peakBasketFloat=0; return;
       }
    }
-   if(recovering) return;   // recovery owns the profit-side close; only the floor above runs while rescuing
    if(UseBasketTrail && tot>=effMin){
       if(tot>peakBasketFloat) peakBasketFloat=tot;
       if(tot<=peakBasketFloat-effTrail){ Print("BasketTrail fired float=",DoubleToString(tot,2)," peak=",DoubleToString(peakBasketFloat,2)); CloseAll(); peakBasketFloat=0; }
@@ -382,13 +317,13 @@ void ManageTradeClosures()
    if(UseBuySellProfitThreshold && sc>=2 && sp>=eff) CloseSide(POSITION_TYPE_SELL);
 }
 
-void OpenTrade(int dir, bool force=false)  // dir +1 buy / -1 sell; force = recovery ride (bypass gates)
+void OpenTrade(int dir)  // dir +1 buy / -1 sell
 {
    int ptype=(dir>0)?POSITION_TYPE_BUY:POSITION_TYPE_SELL;
-   if(!force && CountOpen(ptype)>=MaxSameTrades) return;
+   if(CountOpen(ptype)>=MaxSameTrades) return;
    // FIRST-ENTRY PROBABILITY GATE: only START a basket on this side from a high-win-rate fingerprint.
    // Recovery legs (CountOpen>0) bypass -> the recovery edge is preserved; we just refuse bad STARTS.
-   if(!force && UseFirstEntryGate && CountOpen(ptype)==0)
+   if(UseFirstEntryGate && CountOpen(ptype)==0)
    {
       double wr=0; int ns=0; string key=ClassifySetup(ptype);
       if(!LookupFirstGateStats(key, wr, ns)) return;                       // unknown fingerprint -> don't start
@@ -397,16 +332,16 @@ void OpenTrade(int dir, bool force=false)  // dir +1 buy / -1 sell; force = reco
       if(ns < FirstGateMinSamples || wr < thr) return;                     // low-probability -> don't start
    }
    // SAFETY: imbalance lock -- don't add to a losing side that outnumbers the other
-   if(!force && UseImbalanceLock){
+   if(UseImbalanceLock){
       int me=CountOpen(ptype), opp=CountOpen(dir>0?POSITION_TYPE_SELL:POSITION_TYPE_BUY);
       double myP=SideProfit(ptype);
       if(me-opp>=ImbalanceThreshold && myP<0) return;
    }
    double lot=CalculateLot(ptype);
-   if(!force && UseMaxBasketLots && TotalOpenLots()+lot > MaxBasketLotsTotal) return;  // cap the Fibonacci ladder = cap the loss tail
+   if(UseMaxBasketLots && TotalOpenLots()+lot > MaxBasketLotsTotal) return;  // cap the Fibonacci ladder = cap the loss tail
    trade.SetTypeFillingBySymbol(_Symbol);
    bool ok=(dir>0)?trade.Buy(lot,_Symbol,0,0,0,CommentText):trade.Sell(lot,_Symbol,0,0,0,CommentText);
-   if(ok){ tradesThisBar++; if(!force) ManageTradeClosures(); }
+   if(ok){ tradesThisBar++; ManageTradeClosures(); }
 }
 
 //+------------------------------------------------------------------+
@@ -414,28 +349,19 @@ void OnTick()
 {
    if(iTime(_Symbol,PERIOD_CURRENT,0)!=lastBarTime){ lastBarTime=iTime(_Symbol,PERIOD_CURRENT,0); tradesThisBar=0; LogEquity(); }
 
-   CheckRecoveryHedge();          // arm/exit the deep-basket rescue -> sets g_recovering
-   CheckBasketTrail(g_recovering);// catastrophe floor always; basket-trail skipped while rescuing
+   CheckBasketTrail();   // every tick
 
-   if(!g_recovering && UseSessionFilter){
+   if(UseSessionFilter){
       int hr=BarHour(TimeCurrent());
       bool inS=(SessionStartHour<SessionEndHour)?(hr>=SessionStartHour&&hr<SessionEndHour):(hr>=SessionStartHour||hr<SessionEndHour);
       if(!inS) return;
    }
+   bool hasOpen=(CountOpen(POSITION_TYPE_BUY)>0||CountOpen(POSITION_TYPE_SELL)>0);
+   if(!IsTrendDetected() && !hasOpen) return;
    if(tradesThisBar>=tradesperbar) return;
 
    int sig=GoldminerSignal();
    if(sig==0) return;
-
-   // RECOVERY: ride ONLY the winning (trend) side, bypassing D1/session/imbalance/MaxSameTrades
-   if(g_recovering){
-      int winSig=(g_recoverWinDir==POSITION_TYPE_BUY)?1:-1;
-      if(sig==winSig) OpenTrade(sig,true);
-      return;
-   }
-
-   bool hasOpen=(CountOpen(POSITION_TYPE_BUY)>0||CountOpen(POSITION_TYPE_SELL)>0);
-   if(!IsTrendDetected() && !hasOpen) return;
    // SAFETY: D1 trend filter
    if(UseDailyTrendFilter){
       if(sig>0 && !D1Bull()) return;
