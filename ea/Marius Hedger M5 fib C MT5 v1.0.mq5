@@ -20,7 +20,7 @@
 #include <Trade/Trade.mqh>
 CTrade trade;
 
-#define BUILD "FIBC-MT5-2026-06-27-H"
+#define BUILD "FIBC-MT5-2026-06-28-I"
 
 //--- sizing
 input double LotSize            = 0.02;
@@ -101,13 +101,14 @@ input int    FirstGateMinSamples  = 10;
 //    the whole book recovers to +target. Averaging-in recovers mean-reversion; riding the winner
 //    recovers sustained trends (the deep-basket cause). Overrides D1/session/imbalance/MaxSameTrades
 //    for the WINNING side only. Catastrophe floor stays the backstop. DEFAULT OFF -> base unchanged.
-input bool   UseRecoveryHedge     = false;
-input double HedgeTriggerLoss     = 300.0;  // arm when book float <= -this ($)
-input double HedgeTriggerPctBal   = 0.0;    // >0: arm when book float <= -this%% of balance (overrides HedgeTriggerLoss; deposit-portable). Validated 3.
+input bool   UseRecoveryHedge     = true;
+input double HedgeTriggerLoss     = 0.0;  // arm when book float <= -this ($)
+input double HedgeTriggerPctBal   = 3.0;    // >0: arm when book float <= -this%% of balance (overrides HedgeTriggerLoss; deposit-portable). Validated 3.
 input double RecoveryTargetUSD    = 40.0;   // close the WHOLE book once it recovers to +this ($)
-input bool   UseRecoveryTrail     = false;  // [opt1] once recovered to +target, TRAIL the winner instead of flat-closing (+4%% on gold)
+input bool   UseRecoveryTrail     = true;  // [opt1] once recovered to +target, TRAIL the winner instead of flat-closing (+4%% on gold)
 input double RecoveryTrailGiveback = 20.0;  // give-back ($) from the recovery peak that closes (locks >= effective target)
-input double RecoveryTargetPct    = 0.0;    // [opt2] >0: scale target to this %% of the DEEPEST loss rescued (max w/ RecoveryTargetUSD). +3%% on gold at 10.
+input double RecoveryTargetPct    = 10.0;    // [opt2] >0: scale target to this %% of the DEEPEST loss rescued (max w/ RecoveryTargetUSD). +3%% on gold at 10.
+input bool   RecoveryRespectBreakFilters = false; // [curb] while rescuing, DON'T add a recovery leg when vol-regime HOT or price OVEREXTENDED (structural-break filters) -> stops piling into a stretched move about to whipsaw (the floor-hit cause). Needs UseVolRegimeFilter/UseOverextFilter on.
 //--- misc
 input string CommentText          = "MyEA";
 input int    MagicSeed            = 0;
@@ -430,7 +431,9 @@ void OnTick()
    // RECOVERY: ride ONLY the winning (trend) side, bypassing D1/session/imbalance/MaxSameTrades
    if(g_recovering){
       int winSig=(g_recoverWinDir==POSITION_TYPE_BUY)?1:-1;
-      if(sig==winSig) OpenTrade(sig,true);
+      bool blockAdd = RecoveryRespectBreakFilters &&
+                      ( (UseVolRegimeFilter && IsVolRegimeHot()) || (UseOverextFilter && IsOverextended()) );
+      if(sig==winSig && !blockAdd) OpenTrade(sig,true);   // ride the winner unless a structural break says wait
       return;
    }
 
