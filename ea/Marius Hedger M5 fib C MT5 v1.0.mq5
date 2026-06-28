@@ -20,7 +20,7 @@
 #include <Trade/Trade.mqh>
 CTrade trade;
 
-#define BUILD "FIBC-MT5-2026-06-28-J"
+#define BUILD "FIBC-MT5-2026-06-28-K"
 
 //--- sizing
 input double LotSize            = 0.02;
@@ -30,6 +30,7 @@ input bool   UseCompounding     = true;
 input double CompoundingBase    = 3000.0;   // base lot scales with floor(balance/this)
 input int    MaxSameTrades      = 5;        // max ladder depth per direction
 input int    MaxFibMult         = 0;        // GENTLER LADDER: cap per-leg fib multiplier (0=uncapped 1,1,2,3,5,8..; e.g. 3 -> 1,1,2,3,3,3 = smaller deep legs = smaller floating basket = smaller floor loss, lower PF in chop. The DD dial that works regardless of where legs were placed.)
+input int    MaxCompoundScale   = 0;        // [curb-give-back] cap the compounding multiplier floor(bal/CompoundingBase). 0=uncapped (current). e.g. 3 = base lot never grows past 3x -> baskets stay SMALL relative to a grown account -> the recovery keeps the rescue headroom it has at $3k -> fewer/smaller floor-hits. Trade-off: less compounding upside.
 //--- RECOVERY SIZING MODE (zone-recovery "break-even guarantee" math vs Fibonacci). A/B lever.
 input int    RecoverySizeMode   = 1;        // 0 = Fibonacci (default, UNCHANGED). 1 = BREAK-EVEN formula: each recovery leg = (RR+1)/RR x (opposite-side lots - same-side lots) x CostBuffer = the MINIMAL leg that makes the basket net-positive at the next favourable move, cost included. Leaner/more principled than Fibonacci -> smaller per-basket tail. (Derived from zone-recovery math; in a one-sided trend it floors to base = uniform lots.)
 input double RecoveryRR         = 3.0;      // mode 1 R:R (higher = gentler leg growth)
@@ -108,8 +109,8 @@ input double RecoveryTargetUSD    = 40.0;   // close the WHOLE book once it reco
 input bool   UseRecoveryTrail     = true;  // [opt1] once recovered to +target, TRAIL the winner instead of flat-closing (+4%% on gold)
 input double RecoveryTrailGiveback = 20.0;  // give-back ($) from the recovery peak that closes (locks >= effective target)
 input double RecoveryTargetPct    = 10.0;    // [opt2] >0: scale target to this %% of the DEEPEST loss rescued (max w/ RecoveryTargetUSD). +3%% on gold at 10.
-input bool   RecoveryRespectBreakFilters = true; // [curb] while rescuing, DON'T add a recovery leg when vol-regime HOT or price OVEREXTENDED (structural-break filters) -> stops piling into a stretched move about to whipsaw (the floor-hit cause). Needs UseVolRegimeFilter/UseOverextFilter on.
-input bool   RecoveryScaleByLots  = false; // [curb-size] scale the recovery $ levers (RecoveryTargetUSD/RecoveryTrailGiveback/HedgeTriggerLoss) by the compounding lotScale=floor(bal/CompoundingBase) so they TRACK lot size as the account grows (the basket-trail already does this). Fixes the floor-hits that appear only on grown accounts.
+input bool   RecoveryRespectBreakFilters = false; // [curb] while rescuing, DON'T add a recovery leg when vol-regime HOT or price OVEREXTENDED (structural-break filters) -> stops piling into a stretched move about to whipsaw (the floor-hit cause). Needs UseVolRegimeFilter/UseOverextFilter on.
+input bool   RecoveryScaleByLots  = true; // [curb-size] scale the recovery $ levers (RecoveryTargetUSD/RecoveryTrailGiveback/HedgeTriggerLoss) by the compounding lotScale=floor(bal/CompoundingBase) so they TRACK lot size as the account grows (the basket-trail already does this). Fixes the floor-hits that appear only on grown accounts.
 //--- misc
 input string CommentText          = "MyEA";
 input int    MagicSeed            = 0;
@@ -270,12 +271,14 @@ double SideLots(int dir)  // sum of OPEN lots on one side (for break-even recove
 double BookFloat(){ return SideProfit(POSITION_TYPE_BUY)+SideProfit(POSITION_TYPE_SELL); }
 double TotalOpenLots(){ double l=0; for(int i=PositionsTotal()-1;i>=0;i--){ ulong t=PositionGetTicket(i); if(t==0||!PositionSelectByTicket(t))continue; if(PositionGetInteger(POSITION_MAGIC)!=MagicNumber||PositionGetString(POSITION_SYMBOL)!=_Symbol)continue; l+=PositionGetDouble(POSITION_VOLUME); } return l; }
 
-double LotScaleInt(){ if(!UseCompounding||CompoundingBase<=0) return 1.0; return MathMax(1.0,MathFloor(AccountInfoDouble(ACCOUNT_BALANCE)/CompoundingBase)); }
+double LotScaleInt(){ if(!UseCompounding||CompoundingBase<=0) return 1.0; double sc=MathFloor(AccountInfoDouble(ACCOUNT_BALANCE)/CompoundingBase); if(MaxCompoundScale>0) sc=MathMin(sc,(double)MaxCompoundScale); return MathMax(1.0,sc); }
 double CalculateLot(int dir)
 {
    double baseLot=LotSize;
    if(UseCompounding && CompoundingBase>0){
-      double scaled=MathFloor(AccountInfoDouble(ACCOUNT_BALANCE)/CompoundingBase*LotSize/0.01)*0.01;
+      double mult=AccountInfoDouble(ACCOUNT_BALANCE)/CompoundingBase;
+      if(MaxCompoundScale>0) mult=MathMin(mult,(double)MaxCompoundScale);
+      double scaled=MathFloor(mult*LotSize/0.01)*0.01;
       baseLot=MathMax(LotSize,scaled);
    }
    int cnt=CountOpen(dir);
