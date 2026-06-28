@@ -29,7 +29,7 @@ try:
 except Exception:
     ss = None
 
-MAGICS = {57502: "GOLD", 59917: "SILVER", 62092: "OILCash"}
+MAGICS = {57502: "GOLD", 59917: "SILVER", 62092: "OILCash", 3168: "fibC-GOLD"}
 START  = datetime(2025, 1, 1)
 
 # validated backtest baselines (Dec2025-Jun2026 ~6.6mo locked configs; CLAUDE.md).
@@ -38,6 +38,8 @@ EXPECTED = {
     "GOLD":    dict(pf=3.92, dd_pct=20.2, win=0.76, tr_mo=24),
     "SILVER":  dict(pf=2.60, dd_pct=8.7,  win=0.69, tr_mo=11),
     "OILCash": dict(pf=2.29, dd_pct=14.9, win=0.86, tr_mo=22),
+    # fib C MT5 locked config (cap=3, 2.5yr GOLD backtest): PF 1.72 / 14.5% DD / ~60% leg-win / ~26 leg-closes per mo
+    "fibC-GOLD": dict(pf=1.72, dd_pct=14.5, win=0.60, tr_mo=26),
 }
 
 def connect():
@@ -89,7 +91,7 @@ def generate(refresh_sec, write=True):
     M = {l: metrics(per[l]) for l in order}
     days_live = max(1, (datetime.now() - first_trade).days) if first_trade else 1
 
-    ea = [l for l in ("GOLD", "SILVER", "OILCash") if l in per]
+    ea = [l for l in ("GOLD", "SILVER", "OILCash", "fibC-GOLD") if l in per]
     comb = metrics(sorted([c for l in ea for c in per[l]], key=lambda x: x[0]))
     sum_dd = sum(M[l]["maxdd"] for l in ea)
     div = (sum_dd / comb["maxdd"]) if comb["maxdd"] > 0 else 0.0
@@ -185,7 +187,7 @@ def generate(refresh_sec, write=True):
 
     # expected vs live
     ev_rows = ""
-    for l in ("GOLD", "SILVER", "OILCash"):
+    for l in ("GOLD", "SILVER", "OILCash", "fibC-GOLD"):
         e = EXPECTED[l]; m = M.get(l, dict(n=0, win=0, pf=0))
         live_tr_mo = (m["n"] / days_live * 30) if m["n"] else 0
         thin = m["n"] < 10
@@ -234,7 +236,7 @@ td:first-child,th:first-child{{text-align:left}} th{{background:#f0f0f0}}
 <table><tr><th>Stream</th><th>Trades</th><th>Net P&amp;L</th><th>Win%</th><th>PF</th><th>Max DD</th><th>Open now</th><th>Float</th></tr>
 {perf_rows}</table>
 
-<h2>Portfolio (3 EA streams)</h2>
+<h2>Portfolio (EA streams &mdash; combined book)</h2>
 <table>
 <tr><td>Combined net</td><td class='{cls(comb['net'])}'>{f(comb['net'])}</td></tr>
 <tr><td>Combined max DD</td><td>{f(comb['maxdd'])}</td></tr>
@@ -251,7 +253,7 @@ td:first-child,th:first-child{{text-align:left}} th{{background:#f0f0f0}}
             fp.write(out)
         print(f"[{now}] {ai.login} bal {f(ai.balance)} eq {f(ai.equity)} open {len(pos)} | "
               f"book {days_live}d | EA net {f(comb['net'])}")
-        for l in ("GOLD", "SILVER", "OILCash"):
+        for l in ("GOLD", "SILVER", "OILCash", "fibC-GOLD"):
             m = M.get(l, dict(n=0, net=0, win=0, pf=0)); e = EXPECTED[l]
             live_mo = (m['n']/days_live*30) if m['n'] else 0
             print(f"   {l:>8}: live {m['n']:>2} tr ({live_mo:>4.0f}/mo vs exp {e['tr_mo']}/mo)  net {m['net']:>8.2f}")
