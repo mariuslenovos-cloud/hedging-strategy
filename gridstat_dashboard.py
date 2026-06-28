@@ -44,9 +44,12 @@ EXPECTED = {
 
 def connect():
     for _ in range(3):
-        if mt5.initialize():
+        if mt5.initialize() and mt5.account_info() is not None:
             return True
-    print("MT5 initialize failed:", mt5.last_error()); return False
+        time.sleep(1)
+    print("MT5 not connected:", mt5.last_error(),
+          "\n  -> open the MetaTrader 5 terminal and log into the account first.")
+    return False
 
 def stream_label(magic):
     return MAGICS.get(magic, "MANUAL" if magic == 0 else f"magic{magic}")
@@ -66,6 +69,20 @@ def metrics(closes):
 
 def generate(refresh_sec, write=True):
     ai = mt5.account_info()
+    if ai is None:                              # terminal dropped / not logged in
+        mt5.initialize(); ai = mt5.account_info()
+    if ai is None:
+        msg = ("MT5 not connected - open the MetaTrader 5 terminal, log into the account, "
+               "and keep it running. (account_info() returned None)")
+        print("[" + datetime.now().strftime("%H:%M:%S") + "] " + msg)
+        meta = f'<meta http-equiv="refresh" content="{refresh_sec}">' if refresh_sec else ''
+        html = (f"<!DOCTYPE html><html><head><meta charset='utf-8'>{meta}</head>"
+                f"<body style='font:14px Segoe UI;margin:24px'><h2>Dashboard offline</h2>"
+                f"<p style='color:#c0252b'>&#9888; {msg}</p>"
+                f"<p class=muted>{datetime.now():%Y-%m-%d %H:%M:%S} - will retry on next refresh.</p></body></html>")
+        if write:
+            with open("gridstat_dashboard.html", "w", encoding="utf-8") as fp: fp.write(html)
+        return html
     to = datetime.now() + timedelta(days=1)
     deals = mt5.history_deals_get(START, to) or []
 
