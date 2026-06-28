@@ -20,7 +20,7 @@
 #include <Trade/Trade.mqh>
 CTrade trade;
 
-#define BUILD "FIBC-MT5-2026-06-28-I"
+#define BUILD "FIBC-MT5-2026-06-28-J"
 
 //--- sizing
 input double LotSize            = 0.02;
@@ -108,7 +108,8 @@ input double RecoveryTargetUSD    = 40.0;   // close the WHOLE book once it reco
 input bool   UseRecoveryTrail     = true;  // [opt1] once recovered to +target, TRAIL the winner instead of flat-closing (+4%% on gold)
 input double RecoveryTrailGiveback = 20.0;  // give-back ($) from the recovery peak that closes (locks >= effective target)
 input double RecoveryTargetPct    = 10.0;    // [opt2] >0: scale target to this %% of the DEEPEST loss rescued (max w/ RecoveryTargetUSD). +3%% on gold at 10.
-input bool   RecoveryRespectBreakFilters = false; // [curb] while rescuing, DON'T add a recovery leg when vol-regime HOT or price OVEREXTENDED (structural-break filters) -> stops piling into a stretched move about to whipsaw (the floor-hit cause). Needs UseVolRegimeFilter/UseOverextFilter on.
+input bool   RecoveryRespectBreakFilters = true; // [curb] while rescuing, DON'T add a recovery leg when vol-regime HOT or price OVEREXTENDED (structural-break filters) -> stops piling into a stretched move about to whipsaw (the floor-hit cause). Needs UseVolRegimeFilter/UseOverextFilter on.
+input bool   RecoveryScaleByLots  = false; // [curb-size] scale the recovery $ levers (RecoveryTargetUSD/RecoveryTrailGiveback/HedgeTriggerLoss) by the compounding lotScale=floor(bal/CompoundingBase) so they TRACK lot size as the account grows (the basket-trail already does this). Fixes the floor-hits that appear only on grown accounts.
 //--- misc
 input string CommentText          = "MyEA";
 input int    MagicSeed            = 0;
@@ -319,12 +320,15 @@ void CheckRecoveryHedge()
          g_recovering=false; g_recoverWinDir=-1; g_recoverArmed=false; g_recoverPeak=0; g_recoverDeepest=0; return;
       }
       if(bookFloat < g_recoverDeepest) g_recoverDeepest=bookFloat;        // track deepest loss this rescue
-      double effTarget = (RecoveryTargetPct>0) ? MathMax(RecoveryTargetUSD,(RecoveryTargetPct/100.0)*(-g_recoverDeepest)) : RecoveryTargetUSD;
+      double lotScale = LotScaleInt();
+      double tgtUSD   = RecoveryScaleByLots ? RecoveryTargetUSD*lotScale    : RecoveryTargetUSD;
+      double giveback = RecoveryScaleByLots ? RecoveryTrailGiveback*lotScale : RecoveryTrailGiveback;
+      double effTarget = (RecoveryTargetPct>0) ? MathMax(tgtUSD,(RecoveryTargetPct/100.0)*(-g_recoverDeepest)) : tgtUSD;
       if(UseRecoveryTrail)
       {
          if(bookFloat>=effTarget){ if(!g_recoverArmed) g_recoverArmed=true; if(bookFloat>g_recoverPeak) g_recoverPeak=bookFloat; }
          if(g_recoverArmed){
-            double exitLvl=MathMax(effTarget, g_recoverPeak-RecoveryTrailGiveback);
+            double exitLvl=MathMax(effTarget, g_recoverPeak-giveback);
             if(bookFloat<=exitLvl && bookFloat<g_recoverPeak){
                Print("RECOVERY TRAIL exit: book=+",DoubleToString(bookFloat,2)," peak +",DoubleToString(g_recoverPeak,2)," tgt ",DoubleToString(effTarget,0));
                CloseAll(); g_recovering=false; g_recoverWinDir=-1; g_recoverArmed=false; g_recoverPeak=0; g_recoverDeepest=0; peakBasketFloat=0;
@@ -340,7 +344,7 @@ void CheckRecoveryHedge()
    }
 
    // not recovering -> check the arm trigger
-   double trigger = (HedgeTriggerPctBal>0) ? (HedgeTriggerPctBal/100.0)*bal : HedgeTriggerLoss;
+   double trigger = (HedgeTriggerPctBal>0) ? (HedgeTriggerPctBal/100.0)*bal : (RecoveryScaleByLots ? HedgeTriggerLoss*LotScaleInt() : HedgeTriggerLoss);
    if(trigger>0 && bookFloat<=-trigger)
    {
       double bp=SideProfit(POSITION_TYPE_BUY), sp=SideProfit(POSITION_TYPE_SELL);
