@@ -298,7 +298,13 @@ def serve(port, ttl=20, browser_refresh=30):
         def log_message(self, *a): pass
     try: ip = socket.gethostbyname(socket.gethostname())
     except Exception: ip = "127.0.0.1"
-    srv = HTTPServer(("0.0.0.0", port), H)
+    try:
+        srv = HTTPServer(("0.0.0.0", port), H)
+    except OSError as e:
+        print(f"Could not bind port {port}: {e}")
+        print(f"  -> a dashboard is likely already running on it. Open http://localhost:{port}, or use another port:")
+        print(f"     python gridstat_dashboard.py --serve 8050")
+        return
     print(f"GridStat dashboard serving (Ctrl+C to stop):")
     print(f"   this PC : http://localhost:{port}")
     print(f"   network : http://{ip}:{port}   (phone/2nd screen on the same wifi; allow the port in Windows Firewall if blocked)")
@@ -313,16 +319,20 @@ def main():
         return None
     serveport = argval("--serve", 8000)
     watch = argval("--watch", 300)
-    if not connect(): return
+    once = "--once" in args
+    if not connect():
+        if once:
+            print("MT5 not connected - nothing to write. Open the terminal + log in first."); return
+        print("  -> starting anyway; the page will show 'offline' and recover once MT5 is connected.")
     try:
-        if serveport is not None:
-            serve(serveport)
+        if once:
+            generate(0); print("wrote gridstat_dashboard.html")
         elif watch is not None:
             print(f"watch mode: regenerating every {watch}s (Ctrl+C to stop). Open gridstat_dashboard.html in a browser.")
             while True:
                 generate(watch); time.sleep(watch)
         else:
-            generate(0); print("wrote gridstat_dashboard.html")
+            serve(serveport if serveport is not None else 8000)   # DEFAULT = serve on 8000
     except KeyboardInterrupt:
         print("\nstopped.")
     finally:
