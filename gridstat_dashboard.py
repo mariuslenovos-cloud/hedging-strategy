@@ -146,14 +146,20 @@ def generate(refresh_sec, write=True):
     ping = (ti.ping_last/1000.0) if ti and ti.ping_last else 0.0
     nowts = datetime.now().timestamp(); wd = datetime.now().weekday()
     streams = list(ss.STREAMS) if ss else []
+    # broker server clock differs from the local clock -> derive a server "now" from the freshest tick
+    # (broker epoch) so quote/trade/signal ages are timezone-consistent (fixes the negative "quote age").
+    _ticks = {sym: mt5.symbol_info_tick(sym) for sym in streams}
+    _tt = [t.time for t in _ticks.values() if t and t.time]
+    server_now = max(_tt) if _tt else nowts
+    server_now_dt = datetime.utcfromtimestamp(server_now)          # naive broker-clock; matches signalscan bar times
     feed = {}; last_trade = {}; last_signal = {}
     for sym in streams:
-        tk = mt5.symbol_info_tick(sym)
-        feed[sym] = (nowts - tk.time)/60.0 if tk and tk.time else 9999.0
+        tk = _ticks[sym]
+        feed[sym] = max(0.0, (server_now - tk.time)/60.0) if tk and tk.time else 9999.0
         tms = [d.time for d in deals if d.symbol == sym and d.entry == mt5.DEAL_ENTRY_IN and d.type in (mt5.DEAL_TYPE_BUY, mt5.DEAL_TYPE_SELL)]
-        last_trade[sym] = (nowts - max(tms))/3600.0 if tms else None
+        last_trade[sym] = max(0.0, (server_now - max(tms))/3600.0) if tms else None
         ev = [e for e in devents if e["sym"] == sym]
-        last_signal[sym] = (datetime.now() - ev[-1]["time"]).total_seconds()/3600.0 if ev else None
+        last_signal[sym] = max(0.0, (server_now_dt - ev[-1]["time"]).total_seconds()/3600.0) if ev else None
     alerts = []
     if not connected: alerts.append("Terminal NOT connected to broker")
     if not autotrade: alerts.append("AutoTrading is OFF")
