@@ -20,7 +20,7 @@
 #property copyright "Marius"
 #property version   "1.00"
 
-#define EA_BUILD_VERSION "MT5-2026-07-12-S24-OIL-LOCKED"
+#define EA_BUILD_VERSION "MT5-2026-07-12-S25-OIL-LOCKED"
 #define MAX_PENDING 5000
 
 #include <Trade/Trade.mqh>
@@ -188,6 +188,13 @@ input double OppositeWhenDeepPct   = 5.0;      // ...book float <= -this% of bal
 //    book (losers + rescue) closes together at +RescueBookTargetUSD (fib C's
 //    RecoveryTargetUSD). 0 = disabled (S23 behaviour).
 input double RescueBookTargetUSD   = 50.0;     // close the whole book at +this while rescued (0 = off)
+//    S25 adds fib C's THIRD ingredient -- GROW the winning side. S24 A/B showed one rescue
+//    basket (~1/3 of the losing exposure) cannot overtake 2-3 drowning baskets, so the book
+//    never reaches the exit target before the floors fire. fib C rode EVERY winning-side
+//    signal until the book recovered. RescueMaxBaskets grants up to N rescue slots beyond
+//    MaxConcurrentBaskets while the book stays deep; each entry still needs its own
+//    Goldminer signal + quality gates. 1 = S23/S24 behaviour.
+input int RescueMaxBaskets      = 1;        // rescue slots beyond MaxConcurrentBaskets (fib C ramp: 2-3)
 //--- equity-DD reducer (default OFF = locked config unchanged): close a LOSING basket when D1 trend flips AGAINST it
 //    (the regime change that turns a recoverable dip into a one-way bleed) -> caps the tail before the -20% floor,
 //    lowering intraday equity DD so the proven engine can be sized bigger. Validate every-tick vs the $7,908 baseline.
@@ -307,7 +314,8 @@ int OnInit()
       Print("CONFIG | AllowOppositeWhenDeep=", AllowOppositeWhenDeep,
             " OppositeWhenDeepPct=", DoubleToString(OppositeWhenDeepPct,1),
             "% RescueBookTargetUSD=", DoubleToString(RescueBookTargetUSD,0),
-            " (unblock the natural hedge; while rescued: stop feeding loser + book exit at +target)");
+            " RescueMaxBaskets=", RescueMaxBaskets,
+            " (unblock+GROW the natural hedge; while rescued: stop feeding loser + book exit at +target)");
       {
          int _szh = FileOpen(SizingCSVFile, FILE_READ|FILE_CSV|FILE_COMMON|FILE_ANSI, ',');
          Print("CONFIG | sizing file '", SizingCSVFile, "' open: ",
@@ -692,7 +700,8 @@ void OnTick()
    double szMult = LookupSizing(key);                      // 1.0 if table off; 0 = negative/unknown setup
    if(skip=="" && UseSizingTable && szMult <= 0) skip = "sizingZero";
    int maxB = (MaxConcurrentBaskets < 1) ? 1 : MaxConcurrentBaskets;
-   int effMaxB = maxB + (rescue ? 1 : 0);     // rescue earns ONE extra slot for the hedge basket
+   int rescueSlots = (RescueMaxBaskets < 1) ? 1 : RescueMaxBaskets;
+   int effMaxB = maxB + (rescue ? rescueSlots : 0);   // rescue earns up to N extra slots (fib C ramp)
    if(skip=="" && CountOpenBaskets() >= effMaxB) skip = "maxBaskets("+IntegerToString(effMaxB)+")";
    if(skip=="" && UseSameDirBasketGate)
    {
