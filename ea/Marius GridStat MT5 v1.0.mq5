@@ -16,7 +16,7 @@
 #property copyright "Marius"
 #property version   "1.00"
 
-#define EA_BUILD_VERSION "MT5-2026-07-12-S19"
+#define EA_BUILD_VERSION "MT5-2026-07-12-S20"
 #define MAX_PENDING 5000
 
 #include <Trade/Trade.mqh>
@@ -135,6 +135,14 @@ input double BasketMaxLossPct      = 20.0;
 //    Threshold is PER-SYMBOL ([[exit-rules-per-symbol]]): gold 12; silver/oil need own sweeps.
 input bool   UseStagedFloor        = false;    // cut the worst leg early (default OFF)
 input double StagedFloorPct        = 12.0;     // ...at basket float <= -this% of balance
+//--- PORTFOLIO STAGED FLOOR (2026-07-12): the per-basket staged floor is provably INERT on
+//    multi-basket streams whose pain is N shallow ONE-leg baskets drowning together (oil A/B:
+//    byte-identical, zero fires -- every deep event was the PORTFOLIO floor, no basket near -8%).
+//    This variant = the MT4 original's book-level semantics: TOTAL float <= -this% of balance ->
+//    close the single WORST leg anywhere in the book. Multi-basket path only (conc=1 streams
+//    use the per-basket lever -- identical there by construction). Default OFF.
+input bool   UseStagedFloorPortfolio = false;  // book-level staged cut (oil/silver, conc>1)
+input double StagedFloorPortfolioPct = 8.0;    // ...at TOTAL float <= -this% of balance (< BasketMaxLossPct)
 //--- equity-DD reducer (default OFF = locked config unchanged): close a LOSING basket when D1 trend flips AGAINST it
 //    (the regime change that turns a recoverable dip into a one-way bleed) -> caps the tail before the -20% floor,
 //    lowering intraday equity DD so the proven engine can be sized bigger. Validate every-tick vs the $7,908 baseline.
@@ -232,6 +240,9 @@ int OnInit()
       Print("CONFIG | UseStagedFloor=", UseStagedFloor,
             " StagedFloorPct=", DoubleToString(StagedFloorPct,1),
             "% (worst-leg cut; floor=", DoubleToString(BasketMaxLossPct,1), "%)");
+      Print("CONFIG | UseStagedFloorPortfolio=", UseStagedFloorPortfolio,
+            " StagedFloorPortfolioPct=", DoubleToString(StagedFloorPortfolioPct,1),
+            "% (book-level worst-leg cut, conc>1 only)");
       {
          int _szh = FileOpen(SizingCSVFile, FILE_READ|FILE_CSV|FILE_COMMON|FILE_ANSI, ',');
          Print("CONFIG | sizing file '", SizingCSVFile, "' open: ",
@@ -956,6 +967,40 @@ void ManageGrid()
    // can't multiply tail risk. (single-basket case is already covered by the per-basket floor.)
    if(UseBasketStop && PortfolioFloat() <= -BasketMaxLossPct/100.0 * Bal_())
    { CloseEverything("PORTFOLIO STOP"); g_peakBasketFloat=0.0; return; }
+
+   // ---- PORTFOLIO STAGED FLOOR: lighten the whole book BEFORE the portfolio floor fires.
+   // Shares g_lastStageBar with the per-basket lever -> at most ONE staged cut of any kind
+   // per bar; the realized loss + relief on the survivors self-hystereses the trigger.
+   if(UseStagedFloorPortfolio && iTime(_Symbol, PERIOD_CURRENT, 0) != g_lastStageBar)
+   {
+      double bookF = PortfolioFloat();
+      if(bookF <= -StagedFloorPortfolioPct/100.0 * Bal_())
+      {
+         int totalLegs=0; ulong worstTicket=0; double worstPnl=0;
+         for(int wi=PositionsTotal()-1; wi>=0; wi--)
+         {
+            ulong wtk = PositionGetTicket(wi);
+            if(wtk==0 || !PositionSelectByTicket(wtk)) continue;
+            if(PositionGetInteger(POSITION_MAGIC) != MagicNumber) continue;
+            if(PositionGetString(POSITION_SYMBOL) != _Symbol) continue;
+            if(StringFind(PositionGetString(POSITION_COMMENT), "_HEDGE") >= 0) continue;
+            totalLegs++;
+            double wpnl = PositionGetDouble(POSITION_PROFIT) + PositionGetDouble(POSITION_SWAP);
+            if(worstTicket==0 || wpnl < worstPnl) { worstTicket = wtk; worstPnl = wpnl; }
+         }
+         if(worstTicket > 0 && totalLegs >= 2)   // keep a book to lighten
+         {
+            if(trade.PositionClose(worstTicket))
+               Print("PORTFOLIO STAGED FLOOR: closed worst leg #", worstTicket,
+                     " pnl=", DoubleToString(worstPnl,2),
+                     " (book float was ", DoubleToString(bookF,2), ")");
+            else
+               Print("PORTFOLIO STAGED FLOOR: close failed #", worstTicket, " err=", GetLastError());
+            g_lastStageBar = iTime(_Symbol, PERIOD_CURRENT, 0);
+            return;   // re-evaluate the lightened book next tick
+         }
+      }
+   }
 
    int ids[]; int n = CollectBaskets(ids);
    for(int k=0; k<n; k++) ManageOneBasket(ids[k]);
