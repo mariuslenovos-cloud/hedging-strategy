@@ -20,7 +20,7 @@
 #property copyright "Marius"
 #property version   "1.00"
 
-#define EA_BUILD_VERSION "MT5-2026-07-12-S22-GOLD-SF12-LOCKED"
+#define EA_BUILD_VERSION "MT5-2026-07-12-S23-GOLD-SF12-LOCKED"
 #define MAX_PENDING 5000
 
 #include <Trade/Trade.mqh>
@@ -167,6 +167,19 @@ const double SameDirGateLossPct    = 2.0;      // ...existing same-dir float <= 
 //    Default OFF.
 const bool UseSameDirTaper       = false;    // taper new same-direction basket SIZE while that side is losing  // LOCKED (was input)
 const double SameDirTaperMult      = 0.5;      // lot mult per existing same-dir basket (0.5 -> 2nd=half, 3rd=quarter)  // LOCKED (was input)
+//--- ALLOW OPPOSITE WHEN DEEP (2026-07-12, S23; queued Session 24): the fib C recovery-hedge
+//    anatomy, GridStat-shaped. Shadow-DB evidence on oil's six drowning events: Apr-May buy
+//    drowns had ZERO sell signals passing (lagging D1-50 stayed bullish through the 115->69
+//    collapse = fib C's trades-32/33 root cause); the Jun-09 event had 19 gate-passing SELLs
+//    blocked ONLY by maxBaskets (slots full of drowning buys = the gold live evidence, a
+//    58%-win sell skipped during the deep basket). This lever UNBLOCKS the natural hedge:
+//    while the book floats <= -OppositeWhenDeepPct% of balance, a signal OPPOSITE the losing
+//    side may open its basket even against the lagging D1 filter and gets ONE slot beyond
+//    MaxConcurrentBaskets. Still requires Goldminer + ADX/angle + session + stats/sizing
+//    gates (UNBLOCKS quality trades; never forces rejected ones -- the failed gold ride's
+//    defect). The rescue basket is a normal basket: own +$ escape, own floor. Default OFF.
+const bool AllowOppositeWhenDeep = false;    // unblock opposite-direction baskets while the book is deep  // LOCKED (was input)
+const double OppositeWhenDeepPct   = 5.0;      // ...book float <= -this% of balance arms the unblock  // LOCKED (was input)
 //--- equity-DD reducer (default OFF = locked config unchanged): close a LOSING basket when D1 trend flips AGAINST it
 //    (the regime change that turns a recoverable dip into a one-way bleed) -> caps the tail before the -20% floor,
 //    lowering intraday equity DD so the proven engine can be sized bigger. Validate every-tick vs the $7,908 baseline.
@@ -281,6 +294,9 @@ int OnInit()
       Print("CONFIG | UseSameDirTaper=", UseSameDirTaper,
             " SameDirTaperMult=", DoubleToString(SameDirTaperMult,2),
             " (size-taper new same-dir baskets while that side is losing)");
+      Print("CONFIG | AllowOppositeWhenDeep=", AllowOppositeWhenDeep,
+            " OppositeWhenDeepPct=", DoubleToString(OppositeWhenDeepPct,1),
+            "% (unblock the natural hedge: waive D1 + grant 1 extra slot for opposite-dir baskets)");
       {
          int _szh = FileOpen(SizingCSVFile, FILE_READ|FILE_CSV|FILE_COMMON|FILE_ANSI, ',');
          Print("CONFIG | sizing file '", SizingCSVFile, "' open: ",
@@ -632,7 +648,15 @@ void OnTick()
    string key     = ClassifySetup(dir);
    string skip    = "";                       // "" = passes so far
 
-   if(UseDailyTrendFilter && ((dir==ORDER_TYPE_BUY && !bull) || (dir==ORDER_TYPE_SELL && bull)))
+   // rescue = the book is deep and THIS direction is not the losing side -> the natural
+   // hedge the lagging D1 / full slots would otherwise refuse (fib C anatomy, S23)
+   bool rescue = false;
+   if(AllowOppositeWhenDeep &&
+      PortfolioFloat() <= -OppositeWhenDeepPct/100.0 * Bal_() &&
+      SameDirFloat(dir) >= 0)
+      rescue = true;
+
+   if(!rescue && UseDailyTrendFilter && ((dir==ORDER_TYPE_BUY && !bull) || (dir==ORDER_TYPE_SELL && bull)))
       skip = "D1trend";
    else if(!IsTrendStrong())
       skip = "trendWeak(adx="+DoubleToString(adx,1)+",ang="+DoubleToString(MathAbs(maAngle),1)+")";
@@ -657,7 +681,8 @@ void OnTick()
    double szMult = LookupSizing(key);                      // 1.0 if table off; 0 = negative/unknown setup
    if(skip=="" && UseSizingTable && szMult <= 0) skip = "sizingZero";
    int maxB = (MaxConcurrentBaskets < 1) ? 1 : MaxConcurrentBaskets;
-   if(skip=="" && CountOpenBaskets() >= maxB) skip = "maxBaskets("+IntegerToString(maxB)+")";
+   int effMaxB = maxB + (rescue ? 1 : 0);     // rescue earns ONE extra slot for the hedge basket
+   if(skip=="" && CountOpenBaskets() >= effMaxB) skip = "maxBaskets("+IntegerToString(effMaxB)+")";
    if(skip=="" && UseSameDirBasketGate)
    {
       double sdF = SameDirFloat(dir);
@@ -665,8 +690,11 @@ void OnTick()
          skip = "sameDirDeep("+DoubleToString(sdF,0)+")";
    }
 
-   LogSignal(dir, key, wpr, adx, maAngle, bull, wr, ns, (skip=="" ? "TRADE" : "SKIP:"+skip));
+   LogSignal(dir, key, wpr, adx, maAngle, bull, wr, ns,
+             (skip=="" ? (rescue ? "TRADE(rescue)" : "TRADE") : "SKIP:"+skip));
    if(skip != "") return;                                  // any failed gate -> no trade (same as before)
+   if(rescue) Print("OPPOSITE-WHEN-DEEP: opening ", (dir==(int)ORDER_TYPE_BUY?"BUY":"SELL"),
+                    " rescue basket (book float ", DoubleToString(PortfolioFloat(),2), ")");
 
    g_clusterSizeMult = (szMult > 0) ? szMult : 1.0;
    if(UseSameDirTaper)
