@@ -16,7 +16,7 @@
 #property copyright "Marius"
 #property version   "1.00"
 
-#define EA_BUILD_VERSION "MT5-2026-07-12-S19"
+#define EA_BUILD_VERSION "MT5-2026-07-07-S18"
 #define MAX_PENDING 5000
 
 #include <Trade/Trade.mqh>
@@ -126,15 +126,6 @@ input bool   UseEntrySL            = true;
 //--- Basket catastrophic floor (the grid has no inherent stop)
 input bool   UseBasketStop         = true;
 input double BasketMaxLossPct      = 20.0;
-//--- STAGED FLOOR (Session 24; user-designed LIVE 2026-07-09, ported from MT4 build T):
-//    when a basket floats <= -StagedFloorPct% of balance, close its single WORST leg --
-//    lightens the basket (avg entry improves, escape pulls closer, floor pushes away)
-//    for the price of one realized leg. Live episode: -$28 vs a near-certain -$388.
-//    MT4 156-trade-panel sweep: plateau 12-14, RF 3.74 -> 4.99 at 12. Must be
-//    < BasketMaxLossPct or the catastrophic floor fires first. Default OFF = base unchanged.
-//    Threshold is PER-SYMBOL ([[exit-rules-per-symbol]]): gold 12; silver/oil need own sweeps.
-input bool   UseStagedFloor        = false;    // cut the worst leg early (default OFF)
-input double StagedFloorPct        = 12.0;     // ...at basket float <= -this% of balance
 //--- equity-DD reducer (default OFF = locked config unchanged): close a LOSING basket when D1 trend flips AGAINST it
 //    (the regime change that turns a recoverable dip into a one-way bleed) -> caps the tail before the -20% floor,
 //    lowering intraday equity DD so the proven engine can be sized bigger. Validate every-tick vs the $7,908 baseline.
@@ -181,7 +172,6 @@ string   g_clusterSetup = "";
 double   g_clusterSizeMult = 1.0;   // per-setup size multiplier for the active basket (sizing table)
 double   g_peakBasketFloat = 0.0;
 bool     g_lockArmed = false;   // lock-trail: basket has reached +ProfitTargetUSD and is now riding (Conc<=1 only)
-datetime g_lastStageBar = 0;    // staged floor: at most one worst-leg cut per bar (across all baskets)
 
 //+------------------------------------------------------------------+
 int OnInit()
@@ -229,9 +219,6 @@ int OnInit()
       Print("CONFIG | UseOverextensionFilter=", UseOverextensionFilter,
             " OverextATRMult=", DoubleToString(OverextATRMult,2));
       Print("CONFIG | MaxFibMult=", MaxFibMult, " (0=fib ladder, 1=flat legs, 2=capped)");
-      Print("CONFIG | UseStagedFloor=", UseStagedFloor,
-            " StagedFloorPct=", DoubleToString(StagedFloorPct,1),
-            "% (worst-leg cut; floor=", DoubleToString(BasketMaxLossPct,1), "%)");
       {
          int _szh = FileOpen(SizingCSVFile, FILE_READ|FILE_CSV|FILE_COMMON|FILE_ANSI, ',');
          Print("CONFIG | sizing file '", SizingCSVFile, "' open: ",
@@ -1004,41 +991,6 @@ void ManageOneBasket(int targetBid)
       bool basketBuy = (initialDir == POSITION_TYPE_BUY);
       if((basketBuy && !d1bull) || (!basketBuy && d1bull))
       { CloseBasket(targetBid, "regime flip exit"); g_peakBasketFloat=0.0; return; }
-   }
-   // ---- STAGED FLOOR (user-designed live 2026-07-09; MT4 build T; PER BASKET here):
-   // cut the single WORST leg of THIS basket when it floats <= -StagedFloorPct% of
-   // balance, BEFORE the catastrophic floor -- lightens the basket (escape pulls
-   // closer, floor pushes away, survival odds rise) for the price of one realized leg.
-   // At most one cut per bar (global guard); the realized loss deepens neither float
-   // nor trigger, so the mechanism self-hysteresis on the lightened basket.
-   if(UseStagedFloor && nLevels >= 2 && iTime(_Symbol, PERIOD_CURRENT, 0) != g_lastStageBar &&
-      combinedFloat <= -StagedFloorPct/100.0 * Bal_())
-   {
-      ulong worstTicket = 0; double worstPnl = 0;
-      for(int wi=PositionsTotal()-1; wi>=0; wi--)
-      {
-         ulong wtk = PositionGetTicket(wi);
-         if(wtk==0 || !PositionSelectByTicket(wtk)) continue;
-         if(PositionGetInteger(POSITION_MAGIC) != MagicNumber) continue;
-         if(PositionGetString(POSITION_SYMBOL) != _Symbol) continue;
-         string wcmt = PositionGetString(POSITION_COMMENT);
-         if(BasketIdOf(wcmt) != targetBid) continue;         // THIS basket only
-         if(StringFind(wcmt, "_HEDGE") >= 0) continue;       // basket legs only
-         double wpnl = PositionGetDouble(POSITION_PROFIT) + PositionGetDouble(POSITION_SWAP);
-         if(worstTicket==0 || wpnl < worstPnl) { worstTicket = wtk; worstPnl = wpnl; }
-      }
-      if(worstTicket > 0)
-      {
-         if(trade.PositionClose(worstTicket))
-            Print("STAGED FLOOR: closed worst leg #", worstTicket,
-                  " pnl=", DoubleToString(worstPnl,2),
-                  " (basket float was ", DoubleToString(combinedFloat,2),
-                  " bid=", targetBid, ")");
-         else
-            Print("STAGED FLOOR: close failed #", worstTicket, " err=", GetLastError());
-         g_lastStageBar = iTime(_Symbol, PERIOD_CURRENT, 0);
-         return;   // re-evaluate the lightened basket next tick
-      }
    }
    // profit exit
    if(UseLockTrailExit)

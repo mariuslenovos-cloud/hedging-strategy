@@ -1,16 +1,5 @@
 //+------------------------------------------------------------------+
-//|  Marius GridStat GOLD v1.0 -- BUILD 2026-07-10-T                 |
-//|  + RIDE TRIGGER SWEEP enablement: OnTester returns RECOVERY       |
-//|    FACTOR (net/equityDD) in trade mode -> optimize on 'Custom'    |
-//|    to map the ride's inverted-U (fib C Pass-A style; Session 22   |
-//|    tested only -12%, fib C's winner lived at -3% + trail).        |
-//|  + UseRecoveryTrail: fib C parity -- trail the recovered book     |
-//|    from its post-target peak instead of flat-closing at +$30.     |
-//|  + STAGED FLOOR (UseStagedFloor, user-designed LIVE 2026-07-09:   |
-//|    resting SL on the worst leg turned a near-certain -$388 floor  |
-//|    into a -$28 episode): cut the single WORST leg at -15% of      |
-//|    balance -- lightens the basket, pulls the escape closer,       |
-//|    pushes the floor away. Composable with the recovery ride.      |
+//|  Marius GridStat GOLD v1.0 -- BUILD 2026-07-06-S                 |
 //|  + MaxFibMult (0 by default = base unchanged): caps the Fibonacci  |
 //|    multiplier of grid ADD legs. The fib ladder (1,1,2,3,5) is a    |
 //|    martingale that puts the BIGGEST lots at the WORST prices --    |
@@ -66,7 +55,7 @@
 //+------------------------------------------------------------------+
 #property strict
 
-#define EA_BUILD_VERSION "2026-07-10-T"
+#define EA_BUILD_VERSION "2026-07-06-S"
 #define MAX_PENDING 5000
 
 //--- Mode switches
@@ -144,22 +133,11 @@ input double BasketMaxLossPct      = 20.0;     // % of account balance — hard 
 //    when the basket floats deep against a SUSTAINED trend, STOP feeding the loser
 //    and RIDE the winning (trend) side until the whole book recovers to +target,
 //    then close all in profit. The basket floor (above) stays the V-reversal backstop.
-input bool   UseRecoveryRide       = false;    // enable the recovery-ride escape (Session-22 tested ONE trigger [-12%]; fib C's winner = -3% + trail -> SWEEP RecoveryTriggerPct on the RF OnTester before any verdict)
-input double RecoveryTriggerPct    = 12.0;     // arm when combined float <= -this% of balance (must be < BasketMaxLossPct; fib C locked = 3)
+input bool   UseRecoveryRide       = false;    // enable the recovery-ride escape (A/B REJECTED Session 22 -- keep OFF; kept as dead research)
+input double RecoveryTriggerPct    = 12.0;     // arm when combined float <= -this% of balance (must be < BasketMaxLossPct)
 input double RecoveryTargetUSD     = 30.0;     // close the whole book once combined float reaches +this
 input int    MaxRideLegs           = 6;        // cap on winning-side legs opened during recovery
 input double MaxRideLotsTotal      = 0.60;     // cap on total winning-side lots during recovery
-input bool   UseRecoveryTrail      = false;    // fib C parity (its LOCKED config trails): once book >= target, TRAIL from the peak instead of flat-closing
-input double RecoveryTrailGivebackPct = 15.0;  // close all when the book retraces this % from its post-target peak
-
-//--- STAGED FLOOR (user-designed LIVE 2026-07-09: a resting SL on the worst leg turned a
-//    near-certain -$388 floor into a -$28 episode -- the leg-cut pulled the escape closer
-//    [4104->4109, and gold only gave 4109] AND pushed the floor away [4139->4148]).
-//    When the basket floats <= -StagedFloorPct% of balance, close the single WORST leg
-//    (biggest $ loser), lightening the basket before the catastrophic floor.
-//    Composable with UseRecoveryRide (cut the worst leg while riding the winner).
-input bool   UseStagedFloor        = false;    // cut the worst leg early (default OFF = base unchanged)
-input double StagedFloorPct        = 15.0;     // ...at combined float <= -this% of balance (must be < BasketMaxLossPct)
 
 //--- FLOOR-HEDGE v2 (Session 23; OFF by default = base config byte-identical).
 //    The redesign of "hedge the loser to profit" that fixes the Session-22 ride's four defects:
@@ -229,8 +207,6 @@ double   g_peakBasketFloat = 0.0; // running peak of basket float $ (trailing ex
 double   g_shadowTotalR = 0.0;    // SHADOW: sum of fixed-barrier R (grisk optimization objective)
 bool     g_recovering   = false;  // recovery-ride armed (UseRecoveryRide)
 int      g_rideDir      = -1;     // winning side ridden during recovery (opposite the losing basket)
-double   g_recoveryPeak = 0.0;    // post-target peak of the recovered book (UseRecoveryTrail)
-datetime g_lastStageBar = 0;      // staged floor: at most one worst-leg cut per bar
 double   g_fhLastAnchor = 0.0;    // floor-hedge re-arm hysteresis: last freeze price (0 = none)
 int      g_fhLastDir    = -1;     // basket direction of the last freeze (re-freeze only at a NEW adverse extreme)
 
@@ -253,12 +229,6 @@ int OnInit() {
           " OvertakeStep=", DoubleToString(FH_OvertakeStep,2),
           " MaxRatio=", DoubleToString(FH_OvertakeMaxRatio,2),
           " ReleaseATR=", DoubleToString(FH_ReleaseATR,2));
-    Print("CONFIG | RecoveryTriggerPct=", DoubleToString(RecoveryTriggerPct,1),
-          " RecoveryTargetUSD=", DoubleToString(RecoveryTargetUSD,0),
-          " UseRecoveryTrail=", UseRecoveryTrail,
-          " Giveback=", DoubleToString(RecoveryTrailGivebackPct,1),
-          "% | UseStagedFloor=", UseStagedFloor,
-          " StagedFloorPct=", DoubleToString(StagedFloorPct,1), "%");
     if (UseFloorHedge && UseRecoveryRide)
         Print("WARNING: UseFloorHedge and UseRecoveryRide are BOTH on -- they conflict; enable only one.");
     Print("============================================================");
@@ -285,17 +255,9 @@ int GenerateMagic(string eaName, string sym, int tf) {
     return hash % 100000 + 50000;
 }
 
-// SHADOW mode: total signal R (grisk optimization). TRADE mode: RECOVERY FACTOR
-// (net / equity DD) -- the fib C sweep metric; optimize with criterion = Custom
-// to map the ride-trigger / staged-floor inverted-U.
-double OnTester()
-{
-    ExportBacktestResults();
-    if (StatsCollectionMode) return g_shadowTotalR;
-    double dd  = TesterStatistics(STAT_EQUITY_DD);
-    double net = TesterStatistics(STAT_PROFIT);
-    return (dd > 0) ? net / dd : net;
-}
+// In SHADOW mode, return total signal R so the MT4 optimizer (criterion=Custom)
+// can find the grisk that maximizes a symbol's triple-barrier edge. 0 otherwise.
+double OnTester() { ExportBacktestResults(); return (StatsCollectionMode ? g_shadowTotalR : 0); }
 
 //+------------------------------------------------------------------+
 void OnTick() {
@@ -932,7 +894,7 @@ void ManageGrid() {
     if (nLevels == 0) {
         if (rideOpen) CloseAllBasket("recovery ride: basket gone, close orphan ride");  // safety
         if (fhdgCount > 0) CloseFloorHedgeLegs();  // safety: never leave an orphan floor-hedge
-        g_peakBasketFloat = 0.0; g_recovering = false; g_rideDir = -1; g_recoveryPeak = 0.0;
+        g_peakBasketFloat = 0.0; g_recovering = false; g_rideDir = -1;
         g_fhLastAnchor = 0.0; g_fhLastDir = -1;
         return;
     }
@@ -957,7 +919,7 @@ void ManageGrid() {
             // the floor's floor: bounds overtake whipsaw + any hysteresis-hold bleed
             if (combinedFloat <= -FloorHedgeRuinPct / 100.0 * AccountBalance()) {
                 CloseAllBasket("FLOOR-HEDGE RUIN " + DoubleToString(combinedFloat,2));
-                g_peakBasketFloat = 0.0; g_recovering = false; g_rideDir = -1; g_recoveryPeak = 0.0;
+                g_peakBasketFloat = 0.0; g_recovering = false; g_rideDir = -1;
                 g_fhLastAnchor = 0.0; g_fhLastDir = -1;
                 return;
             }
@@ -984,40 +946,8 @@ void ManageGrid() {
         }
         else if (combinedFloat <= maxLoss) {
             CloseAllBasket("BASKET STOP " + DoubleToString(combinedFloat,2) + " <= " + DoubleToString(maxLoss,2));
-            g_peakBasketFloat = 0.0; g_recovering = false; g_rideDir = -1; g_recoveryPeak = 0.0;
+            g_peakBasketFloat = 0.0; g_recovering = false; g_rideDir = -1;
             return;
-        }
-    }
-
-    // ---- STAGED FLOOR (user-designed live 2026-07-09): cut the single WORST leg when the
-    // basket is deep, BEFORE the catastrophic floor -- lightens the basket (escape pulls
-    // closer, floor pushes away, survival odds rise) for the price of one realized leg.
-    // Once per bar; the realized loss lowers balance/float so the trigger self-hysteresis.
-    if (UseStagedFloor && nLevels >= 2 && Time[0] != g_lastStageBar &&
-        combinedFloat <= -StagedFloorPct / 100.0 * AccountBalance()) {
-        int    worstTicket = -1;
-        double worstPnl    = 0;
-        for (int wi = OrdersTotal()-1; wi >= 0; wi--) {
-            if (!OrderSelect(wi, SELECT_BY_POS, MODE_TRADES)) continue;
-            if (OrderMagicNumber() != MagicNumber) continue;
-            if (OrderType() != OP_BUY && OrderType() != OP_SELL) continue;
-            string wcmt = OrderComment();
-            if (StringFind(wcmt, "_FHDG") >= 0 || StringFind(wcmt, "_RCV") >= 0 ||
-                StringFind(wcmt, "_HEDGE") >= 0) continue;               // basket legs only
-            double wpnl = OrderProfit() + OrderSwap() + OrderCommission();
-            if (worstTicket < 0 || wpnl < worstPnl) { worstTicket = OrderTicket(); worstPnl = wpnl; }
-        }
-        if (worstTicket > 0 && OrderSelect(worstTicket, SELECT_BY_TICKET)) {
-            double wcp = (OrderType() == OP_BUY) ? MarketInfo(Symbol(), MODE_BID)
-                                                 : MarketInfo(Symbol(), MODE_ASK);
-            if (OrderClose(worstTicket, OrderLots(), wcp, 3, clrOrange))
-                Print("STAGED FLOOR: closed worst leg #", worstTicket,
-                      " pnl=", DoubleToString(worstPnl,2),
-                      " (book was ", DoubleToString(combinedFloat,2), ")");
-            else
-                Print("STAGED FLOOR: close failed #", worstTicket, " err=", GetLastError());
-            g_lastStageBar = Time[0];
-            return;   // re-evaluate the lightened basket next tick
         }
     }
 
@@ -1036,22 +966,9 @@ void ManageGrid() {
                   " ride=", (g_rideDir==OP_BUY?"BUY":"SELL"));
         }
         if (g_recovering && combinedFloat >= RecoveryTargetUSD) {
-            if (!UseRecoveryTrail) {
-                CloseAllBasket("RECOVERY RIDE complete +" + DoubleToString(combinedFloat,2));
-                g_recovering = false; g_rideDir = -1; g_peakBasketFloat = 0.0; g_recoveryPeak = 0.0;
-                return;
-            }
-            if (combinedFloat > g_recoveryPeak) g_recoveryPeak = combinedFloat;   // trail: ride the recovered book
-        }
-        if (g_recovering && UseRecoveryTrail && g_recoveryPeak >= RecoveryTargetUSD) {
-            double rStop = g_recoveryPeak * (1.0 - RecoveryTrailGivebackPct / 100.0);
-            if (rStop < 0) rStop = 0;
-            if (combinedFloat <= rStop) {
-                CloseAllBasket("RECOVERY TRAIL exit +" + DoubleToString(combinedFloat,2) +
-                               " (peak " + DoubleToString(g_recoveryPeak,2) + ")");
-                g_recovering = false; g_rideDir = -1; g_peakBasketFloat = 0.0; g_recoveryPeak = 0.0;
-                return;
-            }
+            CloseAllBasket("RECOVERY RIDE complete +" + DoubleToString(combinedFloat,2));
+            g_recovering = false; g_rideDir = -1; g_peakBasketFloat = 0.0;
+            return;
         }
     }
 
@@ -1060,8 +977,7 @@ void ManageGrid() {
         // Grid is in recovery: bail the WHOLE basket at the first small profit to
         // de-risk fast (build-I "+$ and out" escape). Trailing is wrong here -- it
         // needs +1R of the grown basket (~9x), leaving the martingale exposed.
-        // (While the recovery TRAIL manages a ridden book, defer to it -- fib C parity.)
-        if (combinedFloat >= ProfitTargetUSD && !(g_recovering && UseRecoveryTrail)) {
+        if (combinedFloat >= ProfitTargetUSD) {
             CloseAllBasket("grid recovery escape +" + DoubleToString(combinedFloat,2));
             g_peakBasketFloat = 0.0;
             return;
