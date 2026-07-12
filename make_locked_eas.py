@@ -57,9 +57,15 @@ BASE_MT5, BASE_MT4 = "S19", "T"
 KEEP_MT5 = {"UseStagedFloor", "StagedFloorPct", "UseSignalLog"}   # MT4 keep-sets live per job in MT4_JOBS
 
 MT5_CONFIGS = {
-    "GOLD": {   # $7,908 / PF 3.92 / 20.2% eqDD / 157tr anchor (re-confirmed S18 07-07)
+    "GOLD": {   # STAGED FLOOR LOCKED 2026-07-12 (real-tick gate PASSED both venues: XM eqDD 20.21->11.59%,
+                # PEP 19.15->11.33%, net -4%, RF 4.98->6.49 / 5.46->6.67; same 3 cut events on both feeds).
+                # New anchors (Dec-01->Jul-12, $3k): XM $9,082/PF3.29/11.59%/194tr; PEP $9,342/PF3.39/11.33%/195tr.
+                # Pre-staged anchors (archived): XM $9,479/PF3.52/20.21%/191tr; PEP $9,741/PF3.63/19.15%/192tr.
         "symbols": ["GOLD", "XAUUSD"],
+        "keep": {"UseSignalLog"},          # staged floor now part of the lock -> hard-coded (A/B via the master)
+        "buildsuffix": "-SF12",
         "values": {
+            "UseStagedFloor": "true",      # LOCKED 2026-07-12 (gate: MT5 real-tick A/B both venues)
             "StatsCollectionMode": "false", "StatsCSVFile": '"gridstat_setups_gold.csv"',
             "grisk": "4", "StatsFilterEnabled": "true", "MinWinRate": "0.55", "MinSamples": "10",
             "UseSizingTable": "false", "LotSize": "0.02",
@@ -109,11 +115,14 @@ MT5_CONFIGS = {
 
 MT4_JOBS = [
     {   # = the LIVE Pepperstone chart inputs 2026-07-10 (grisk 4 superseded the old grisk-7 lock)
+        # + STAGED FLOOR LOCKED 2026-07-12 (MT5 real-tick gate passed both venues; MT4 evidence:
+        #   156-trade-panel sweep RF 3.74->4.99 @12 + the live -$28 episode)
         "tag": "GOLD", "master": MASTER_MT4_GOLD, "base": BASE_MT4,
         "deploy": ["XM-MT4", "PEP-MT4"],
-        "keep": {"UseStagedFloor", "StagedFloorPct"},
+        "keep": set(), "buildsuffix": "-SF12",
         "symbols": ["GOLD", "XAUUSD"],
         "values": {
+            "UseStagedFloor": "true",      # LOCKED 2026-07-12
             "StatsCollectionMode": "false", "StatsCSVFile": '"gridstat_setups.csv"',
             "grisk": "4", "StatsFilterEnabled": "true", "MinWinRate": "0.55", "MinSamples": "10",
             "UseSizingTable": "false", "LotSize": "0.02",
@@ -144,8 +153,10 @@ MT4_JOBS = [
     },
     {   # mirrors the MT5 oil lock ($7,567/PF2.29/14.85%DD) = the conc-port's source defaults (verified 07-12)
         # ⚠ the MT4-conc port itself was never every-tick validated -- locking the config is not validation
+        # deployed to XM-MT4 too: PEP-MT4 lacks SpotCrude M1 history, so the conc-port
+        # validation runs on XM's OILCash data (guard accepts both symbol names)
         "tag": "OIL", "master": MASTER_MT4_OIL, "base": "P-MT4CONC",
-        "deploy": ["PEP-MT4"],
+        "deploy": ["PEP-MT4", "XM-MT4"],
         "keep": set(),
         "symbols": ["OILCash", "SpotCrude"],
         "values": {
@@ -244,7 +255,8 @@ def main():
     mt5_master = read_src(MASTER_MT5)
     for tag, cfg in MT5_CONFIGS.items():
         fname = f"Marius GridStat MT5 {tag} LOCKED.mq5"
-        body = transform(mt5_master, tag, cfg, KEEP_MT5, f"MT5-{STAMP}-{BASE_MT5}-{tag}-LOCKED")
+        body = transform(mt5_master, tag, cfg, cfg.get("keep", KEEP_MT5),
+                         f"MT5-{STAMP}-{BASE_MT5}-{tag}{cfg.get('buildsuffix','')}-LOCKED")
         for term in ("XM-MT5", "PEP-MT5"):
             path = os.path.join(TERMINALS[term]["experts"], fname)
             io.open(path, "w", encoding="utf-8").write(body)
@@ -256,7 +268,7 @@ def main():
         tag = job["tag"]
         fname = f"Marius GridStat {tag} LOCKED.mq4"
         body = transform(read_src(job["master"]), tag, job, job["keep"],
-                         f"{STAMP}-{job['base']}-{tag}-LOCKED")
+                         f"{STAMP}-{job['base']}-{tag}{job.get('buildsuffix','')}-LOCKED")
         for term in job["deploy"]:
             path = os.path.join(TERMINALS[term]["experts"], fname)
             io.open(path, "w", encoding="utf-8").write(body)

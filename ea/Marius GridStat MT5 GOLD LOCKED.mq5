@@ -20,7 +20,7 @@
 #property copyright "Marius"
 #property version   "1.00"
 
-#define EA_BUILD_VERSION "MT5-2026-07-12-S19-GOLD-LOCKED"
+#define EA_BUILD_VERSION "MT5-2026-07-12-S19-GOLD-SF12-LOCKED"
 #define MAX_PENDING 5000
 
 #include <Trade/Trade.mqh>
@@ -137,8 +137,8 @@ const double BasketMaxLossPct      = 20.0;  // LOCKED (was input)
 //    MT4 156-trade-panel sweep: plateau 12-14, RF 3.74 -> 4.99 at 12. Must be
 //    < BasketMaxLossPct or the catastrophic floor fires first. Default OFF = base unchanged.
 //    Threshold is PER-SYMBOL ([[exit-rules-per-symbol]]): gold 12; silver/oil need own sweeps.
-input bool UseStagedFloor        = false;    // cut the worst leg early (default OFF)
-input double StagedFloorPct        = 12.0;     // ...at basket float <= -this% of balance
+const bool UseStagedFloor        = true;    // cut the worst leg early (default OFF)  // LOCKED (was input)
+const double StagedFloorPct        = 12.0;     // ...at basket float <= -this% of balance  // LOCKED (was input)
 //--- equity-DD reducer (default OFF = locked config unchanged): close a LOSING basket when D1 trend flips AGAINST it
 //    (the regime change that turns a recoverable dip into a one-way bleed) -> caps the tail before the -20% floor,
 //    lowering intraday equity DD so the proven engine can be sized bigger. Validate every-tick vs the $7,908 baseline.

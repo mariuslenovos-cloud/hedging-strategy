@@ -70,7 +70,7 @@
 //+------------------------------------------------------------------+
 #property strict
 
-#define EA_BUILD_VERSION "2026-07-12-T-GOLD-LOCKED"
+#define EA_BUILD_VERSION "2026-07-12-T-GOLD-SF12-LOCKED"
 #define MAX_PENDING 5000
 
 //--- Mode switches
@@ -162,8 +162,8 @@ const double RecoveryTrailGivebackPct = 15.0;  // close all when the book retrac
 //    When the basket floats <= -StagedFloorPct% of balance, close the single WORST leg
 //    (biggest $ loser), lightening the basket before the catastrophic floor.
 //    Composable with UseRecoveryRide (cut the worst leg while riding the winner).
-input bool UseStagedFloor        = false;    // cut the worst leg early (default OFF = base unchanged)
-input double StagedFloorPct        = 12.0;     // ...at combined float <= -this% of balance (must be < BasketMaxLossPct)
+const bool UseStagedFloor        = true;    // cut the worst leg early (default OFF = base unchanged)  // LOCKED (was input)
+const double StagedFloorPct        = 12.0;     // ...at combined float <= -this% of balance (must be < BasketMaxLossPct)  // LOCKED (was input)
 
 //--- FLOOR-HEDGE v2 (Session 23; OFF by default = base config byte-identical).
 //    The redesign of "hedge the loser to profit" that fixes the Session-22 ride's four defects:
