@@ -22,9 +22,11 @@ sweeps and optimizations):
   (XM source default MaxFibMult=1, a user edit) -- NOT auto-synced; locked EAs
   hard-code MaxFibMult=0 so the drift is neutralized where it matters.
 
-DEPLOYMENT MANIFEST:
+DEPLOYMENT MANIFEST (mirrors what actually RUNS live per the user, 2026-07-12):
   MT5 locked GOLD/SILVER/OIL  -> XM-MT5 + PEP-MT5   (guards accept XM + Pepperstone symbol names)
-  MT4 locked GOLD             -> XM-MT4 + PEP-MT4   (only MT4 GridStat live; add silver/oil rows when they go live)
+  MT4 locked GOLD             -> XM-MT4 + PEP-MT4
+  MT4 locked SILVER           -> XM-MT4 + PEP-MT4   (build-P vintage master: NO staged-floor inputs -> ZERO visible inputs)
+  MT4 locked OIL              -> PEP-MT4 only       (MT4-conc port; ⚠ conc port never every-tick validated -- locking config != validation)
   MT5 master                  -> synced XM-MT5 -> PEP-MT5 (research parity; PEP copy was stale at 06-29)
 
 MT4 locked GOLD config source of truth = the LIVE Pepperstone chart inputs
@@ -44,14 +46,15 @@ TERMINALS = {
     "PEP-MT4": {"experts": TERMDATA + r"\3294B546D50FEEDA6BF3CFC7CF858DB7\MQL4\Experts",
                 "me": r"C:\Program Files (x86)\Pepperstone MetaTrader 4\metaeditor.exe"},
 }
-MASTER_MT5 = os.path.join(TERMINALS["XM-MT5"]["experts"], "Marius GridStat MT5 v1.0.mq5")
-MASTER_MT4 = os.path.join(TERMINALS["XM-MT4"]["experts"], "Marius GridStat GOLD v1.0.mq4")
+MASTER_MT5        = os.path.join(TERMINALS["XM-MT5"]["experts"], "Marius GridStat MT5 v1.0.mq5")
+MASTER_MT4_GOLD   = os.path.join(TERMINALS["XM-MT4"]["experts"], "Marius GridStat GOLD v1.0.mq4")
+MASTER_MT4_SILVER = os.path.join(TERMINALS["XM-MT4"]["experts"], "Marius GridStat SILVER v1.0.mq4")   # byte-identical to the PEP copy (md5-verified 07-12)
+MASTER_MT4_OIL    = os.path.join(TERMINALS["PEP-MT4"]["experts"], "Marius GridStat OIL v1.0.mq4")      # MT4-conc port lives on PEP only (build 2026-07-01-P-MT4CONC)
 EA_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "ea")
 STAMP = "2026-07-12"
 BASE_MT5, BASE_MT4 = "S19", "T"
 
-KEEP_MT5 = {"UseStagedFloor", "StagedFloorPct", "UseSignalLog"}
-KEEP_MT4 = {"UseStagedFloor", "StagedFloorPct"}
+KEEP_MT5 = {"UseStagedFloor", "StagedFloorPct", "UseSignalLog"}   # MT4 keep-sets live per job in MT4_JOBS
 
 MT5_CONFIGS = {
     "GOLD": {   # $7,908 / PF 3.92 / 20.2% eqDD / 157tr anchor (re-confirmed S18 07-07)
@@ -104,8 +107,11 @@ MT5_CONFIGS = {
     },
 }
 
-MT4_CONFIGS = {
-    "GOLD": {   # = the LIVE Pepperstone chart inputs 2026-07-10 (grisk 4 superseded the old grisk-7 lock)
+MT4_JOBS = [
+    {   # = the LIVE Pepperstone chart inputs 2026-07-10 (grisk 4 superseded the old grisk-7 lock)
+        "tag": "GOLD", "master": MASTER_MT4_GOLD, "base": BASE_MT4,
+        "deploy": ["XM-MT4", "PEP-MT4"],
+        "keep": {"UseStagedFloor", "StagedFloorPct"},
         "symbols": ["GOLD", "XAUUSD"],
         "values": {
             "StatsCollectionMode": "false", "StatsCSVFile": '"gridstat_setups.csv"',
@@ -121,7 +127,39 @@ MT4_CONFIGS = {
             "StagedFloorPct": "12.0",     # MT4 156-trade-panel plateau 12-14 (input, default only)
         },
     },
-}
+    {   # $2,747 / PF 2.79 / 11.1% DD MT4 lock (2026-06-05) = the master's own source defaults (verified 07-12)
+        "tag": "SILVER", "master": MASTER_MT4_SILVER, "base": "P",
+        "deploy": ["XM-MT4", "PEP-MT4"],
+        "keep": set(),                    # build-P vintage: no staged-floor inputs -> fully locked, zero visible
+        "symbols": ["SILVER", "XAGUSD"],
+        "values": {
+            "StatsCollectionMode": "false", "StatsCSVFile": '"gridstat_setups_silver.csv"',
+            "grisk": "14", "StatsFilterEnabled": "true", "MinWinRate": "0.50", "MinSamples": "10",
+            "UseSizingTable": "false", "LotSize": "0.02",
+            "UseCompounding": "true", "CompoundingBase": "3000.0",
+            "UseRiskNormalizedLots": "true", "RiskPctPerTrade": "2.0",
+            "ProfitTargetUSD": "75.0", "UseBasketStop": "true", "BasketMaxLossPct": "20.0",
+            "UseTrailingExit": "false", "ATRSpacingMultiplier": "0.5", "MaxGridLevels": "6",
+        },
+    },
+    {   # mirrors the MT5 oil lock ($7,567/PF2.29/14.85%DD) = the conc-port's source defaults (verified 07-12)
+        # ⚠ the MT4-conc port itself was never every-tick validated -- locking the config is not validation
+        "tag": "OIL", "master": MASTER_MT4_OIL, "base": "P-MT4CONC",
+        "deploy": ["PEP-MT4"],
+        "keep": set(),
+        "symbols": ["OILCash", "SpotCrude"],
+        "values": {
+            "StatsCollectionMode": "false", "StatsCSVFile": '"gridstat_setups_oil_mt5.csv"',
+            "grisk": "4", "StatsFilterEnabled": "false", "MinWinRate": "0.50", "MinSamples": "10",
+            "UseSizingTable": "true", "SizingCSVFile": '"gridstat_sizing_oil.csv"', "MaxSizeMult": "2.0",
+            "LotSize": "0.02", "UseCompounding": "true", "CompoundingBase": "3000.0",
+            "UseRiskNormalizedLots": "true", "RiskPctPerTrade": "2.5",
+            "MaxConcurrentBaskets": "3", "ProfitTargetUSD": "100.0",
+            "UseEntrySL": "false", "UseBasketStop": "true", "BasketMaxLossPct": "10.0",
+            "UseTrailingExit": "false", "ATRSpacingMultiplier": "0.5", "MaxGridLevels": "6",
+        },
+    },
+]
 
 INPUT_RE = re.compile(r"^input\s+(\w+)\s+(\w+)(\s*)=\s*([^;]+);(.*)$")
 
@@ -213,12 +251,13 @@ def main():
             results.append((term, fname, compile_one(TERMINALS[term]["me"], path)))
         io.open(os.path.join(EA_DIR, fname), "w", encoding="utf-8").write(body)
 
-    # --- job 3: MT4 locked GOLD -> XM-MT4 + PEP-MT4
-    mt4_master = read_src(MASTER_MT4)
-    for tag, cfg in MT4_CONFIGS.items():
+    # --- job 3: MT4 locked EAs, per-job master + deploy list
+    for job in MT4_JOBS:
+        tag = job["tag"]
         fname = f"Marius GridStat {tag} LOCKED.mq4"
-        body = transform(mt4_master, tag, cfg, KEEP_MT4, f"{STAMP}-{BASE_MT4}-{tag}-LOCKED")
-        for term in ("XM-MT4", "PEP-MT4"):
+        body = transform(read_src(job["master"]), tag, job, job["keep"],
+                         f"{STAMP}-{job['base']}-{tag}-LOCKED")
+        for term in job["deploy"]:
             path = os.path.join(TERMINALS[term]["experts"], fname)
             io.open(path, "w", encoding="utf-8").write(body)
             results.append((term, fname, compile_one(TERMINALS[term]["me"], path)))
