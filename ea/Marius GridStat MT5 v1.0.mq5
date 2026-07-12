@@ -16,7 +16,7 @@
 #property copyright "Marius"
 #property version   "1.00"
 
-#define EA_BUILD_VERSION "MT5-2026-07-12-S23"
+#define EA_BUILD_VERSION "MT5-2026-07-12-S24"
 #define MAX_PENDING 5000
 
 #include <Trade/Trade.mqh>
@@ -176,6 +176,14 @@ input double SameDirTaperMult      = 0.5;      // lot mult per existing same-dir
 //    defect). The rescue basket is a normal basket: own +$ escape, own floor. Default OFF.
 input bool   AllowOppositeWhenDeep = false;    // unblock opposite-direction baskets while the book is deep
 input double OppositeWhenDeepPct   = 5.0;      // ...book float <= -this% of balance arms the unblock
+//    S24 completes fib C's EXIT choreography (S23 A/B: every drowning cluster shrank + DD$
+//    -28%, but net -32% because the rescue basket was left to fend for itself -- it won
+//    during the continuation then bled its gains back on the bounce while the losers
+//    recovered = hedge-churn without fib C's book-level exit). While a rescue basket is
+//    open: (a) the LOSING side stops grid-adding (stop feeding the loser), (b) the WHOLE
+//    book (losers + rescue) closes together at +RescueBookTargetUSD (fib C's
+//    RecoveryTargetUSD). 0 = disabled (S23 behaviour).
+input double RescueBookTargetUSD   = 50.0;     // close the whole book at +this while rescued (0 = off)
 //--- equity-DD reducer (default OFF = locked config unchanged): close a LOSING basket when D1 trend flips AGAINST it
 //    (the regime change that turns a recoverable dip into a one-way bleed) -> caps the tail before the -20% floor,
 //    lowering intraday equity DD so the proven engine can be sized bigger. Validate every-tick vs the $7,908 baseline.
@@ -223,6 +231,8 @@ double   g_clusterSizeMult = 1.0;   // per-setup size multiplier for the active 
 double   g_peakBasketFloat = 0.0;
 bool     g_lockArmed = false;   // lock-trail: basket has reached +ProfitTargetUSD and is now riding (Conc<=1 only)
 datetime g_lastStageBar = 0;    // staged floor: at most one worst-leg cut per bar (across all baskets)
+int      g_rescueDir = -1;      // AllowOppositeWhenDeep: direction of the open rescue basket(s), -1 = none
+                                // (research lever: not restart-safe; harden with a comment tag if promoted)
 
 //+------------------------------------------------------------------+
 int OnInit()
@@ -284,7 +294,8 @@ int OnInit()
             " (size-taper new same-dir baskets while that side is losing)");
       Print("CONFIG | AllowOppositeWhenDeep=", AllowOppositeWhenDeep,
             " OppositeWhenDeepPct=", DoubleToString(OppositeWhenDeepPct,1),
-            "% (unblock the natural hedge: waive D1 + grant 1 extra slot for opposite-dir baskets)");
+            "% RescueBookTargetUSD=", DoubleToString(RescueBookTargetUSD,0),
+            " (unblock the natural hedge; while rescued: stop feeding loser + book exit at +target)");
       {
          int _szh = FileOpen(SizingCSVFile, FILE_READ|FILE_CSV|FILE_COMMON|FILE_ANSI, ',');
          Print("CONFIG | sizing file '", SizingCSVFile, "' open: ",
@@ -705,6 +716,7 @@ void OnTick()
    double minLot = SymbolInfoDouble(_Symbol, SYMBOL_VOLUME_MIN);
    if(lot < minLot) lot = minLot;
    OpenSimpleSLTP(dir, lot, key, newBid);
+   if(rescue) g_rescueDir = dir;              // arm the book-level rescue choreography (S24)
 }
 
 //+------------------------------------------------------------------+
@@ -1113,6 +1125,20 @@ void ManageGrid()
       }
    }
 
+   // ---- RESCUE BOOK EXIT (S24, fib C's RecoveryTargetUSD): while a rescue basket is open,
+   // close the WHOLE book (losers + rescue) together once combined float reaches the target.
+   if(AllowOppositeWhenDeep && g_rescueDir >= 0)
+   {
+      if(CountSameDirBaskets(g_rescueDir) == 0)
+         g_rescueDir = -1;                                   // rescue basket(s) gone -> disarm
+      else if(RescueBookTargetUSD > 0 && PortfolioFloat() >= RescueBookTargetUSD)
+      {
+         CloseEverything("RESCUE BOOK EXIT +" + DoubleToString(PortfolioFloat(),2));
+         g_rescueDir = -1; g_peakBasketFloat = 0.0;
+         return;
+      }
+   }
+
    int ids[]; int n = CollectBaskets(ids);
    for(int k=0; k<n; k++) ManageOneBasket(ids[k]);
 }
@@ -1278,6 +1304,8 @@ void ManageOneBasket(int targetBid)
          if(initialDir==POSITION_TYPE_SELL && currentPrice >= extremeEntry + spacing*point) addNow=true;
          if(addNow)
          {
+            // rescue choreography (S24): stop FEEDING the losing side while a rescue basket rides
+            if(AllowOppositeWhenDeep && g_rescueDir >= 0 && (int)initialDir != g_rescueDir) return;
             double currentTotalLots = basketLots + hedgeLots;
             double rawGridLot = UseRiskNormalizedLots ? RiskNormalizedLot(nLevels) : CalculateLot(nLevels);
             if(rawGridLot < 0) return;
