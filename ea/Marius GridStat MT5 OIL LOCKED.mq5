@@ -20,7 +20,7 @@
 #property copyright "Marius"
 #property version   "1.00"
 
-#define EA_BUILD_VERSION "MT5-2026-07-12-S25-OIL-LOCKED"
+#define EA_BUILD_VERSION "MT5-2026-07-12-S25-OIL-RSQ2-LOCKED"
 #define MAX_PENDING 5000
 
 #include <Trade/Trade.mqh>
@@ -57,7 +57,7 @@ const int MA_Period          = 20;  // LOCKED (was input)
 const int ADX_Period         = 14;  // LOCKED (was input)
 const double ADX_Threshold      = 25.0;  // LOCKED (was input)
 const bool UseDailyTrendFilter = true;  // LOCKED (was input)
-input int DailyMA_Period      = 50;
+const int DailyMA_Period      = 50;  // LOCKED (was input)
 const bool UseSessionFilter    = true;  // LOCKED (was input)
 const int SessionStartHour    = 9;  // LOCKED (was input)
 const int SessionEndHour      = 23;  // LOCKED (was input)
@@ -137,16 +137,16 @@ const double BasketMaxLossPct      = 10.0;  // LOCKED (was input)
 //    MT4 156-trade-panel sweep: plateau 12-14, RF 3.74 -> 4.99 at 12. Must be
 //    < BasketMaxLossPct or the catastrophic floor fires first. Default OFF = base unchanged.
 //    Threshold is PER-SYMBOL ([[exit-rules-per-symbol]]): gold 12; silver/oil need own sweeps.
-input bool UseStagedFloor        = false;    // cut the worst leg early (default OFF)
-input double StagedFloorPct        = 8.0;     // ...at basket float <= -this% of balance
+const bool UseStagedFloor        = false;    // cut the worst leg early (default OFF)  // LOCKED (was input)
+const double StagedFloorPct        = 8.0;     // ...at basket float <= -this% of balance  // LOCKED (was input)
 //--- PORTFOLIO STAGED FLOOR (2026-07-12): the per-basket staged floor is provably INERT on
 //    multi-basket streams whose pain is N shallow ONE-leg baskets drowning together (oil A/B:
 //    byte-identical, zero fires -- every deep event was the PORTFOLIO floor, no basket near -8%).
 //    This variant = the MT4 original's book-level semantics: TOTAL float <= -this% of balance ->
 //    close the single WORST leg anywhere in the book. Multi-basket path only (conc=1 streams
 //    use the per-basket lever -- identical there by construction). Default OFF.
-input bool UseStagedFloorPortfolio = false;  // book-level staged cut (oil/silver, conc>1)
-input double StagedFloorPortfolioPct = 8.0;    // ...at TOTAL float <= -this% of balance (< BasketMaxLossPct)
+const bool UseStagedFloorPortfolio = false;  // book-level staged cut (oil/silver, conc>1)  // LOCKED (was input)
+const double StagedFloorPortfolioPct = 8.0;    // ...at TOTAL float <= -this% of balance (< BasketMaxLossPct)  // LOCKED (was input)
 //--- SAME-DIRECTION BASKET GATE (2026-07-12, S21): oil's six ~-$1,0xx-1,4xx events are N
 //    same-direction ONE-leg baskets drowning together (3x correlated exposure to one move),
 //    and BOTH staged-floor variants failed there (per-basket inert; book-level cut realized
@@ -154,8 +154,8 @@ input double StagedFloorPortfolioPct = 8.0;    // ...at TOTAL float <= -this% of
 //    instead of cutting one: block a NEW basket in direction D while the existing D-direction
 //    legs float <= -SameDirGateLossPct% of balance. Gate-respecting (no forced realizations,
 //    winners untouched, recovery adds inside existing baskets unaffected). Default OFF.
-input bool UseSameDirBasketGate  = false;    // block new same-direction baskets while that side is deep
-input double SameDirGateLossPct    = 2.0;      // ...existing same-dir float <= -this% of balance blocks
+const bool UseSameDirBasketGate  = false;    // block new same-direction baskets while that side is deep  // LOCKED (was input)
+const double SameDirGateLossPct    = 2.0;      // ...existing same-dir float <= -this% of balance blocks  // LOCKED (was input)
 //--- SAME-DIRECTION SIZE TAPER (2026-07-12, S22): the GATE version above is RF-negative on
 //    oil (PEP A/B @2%: blocked 22% of 89%-win flow to save 21% DD$ -> RF 3.23->2.98). Per
 //    [[rigor-drives-sizing-not-gating]]: don't BLOCK the pile-in entry -- SHRINK it. A new
@@ -165,8 +165,8 @@ input double SameDirGateLossPct    = 2.0;      // ...existing same-dir float <= 
 //    INITIAL entry only, same semantics as the sizing table (grid legs stay base size --
 //    the observed oil tail anatomy is ONE-leg baskets, so the initial entry IS the exposure).
 //    Default OFF.
-input bool UseSameDirTaper       = false;    // taper new same-direction basket SIZE while that side is losing
-input double SameDirTaperMult      = 0.5;      // lot mult per existing same-dir basket (0.5 -> 2nd=half, 3rd=quarter)
+const bool UseSameDirTaper       = false;    // taper new same-direction basket SIZE while that side is losing  // LOCKED (was input)
+const double SameDirTaperMult      = 0.5;      // lot mult per existing same-dir basket (0.5 -> 2nd=half, 3rd=quarter)  // LOCKED (was input)
 //--- ALLOW OPPOSITE WHEN DEEP (2026-07-12, S23; queued Session 24): the fib C recovery-hedge
 //    anatomy, GridStat-shaped. Shadow-DB evidence on oil's six drowning events: Apr-May buy
 //    drowns had ZERO sell signals passing (lagging D1-50 stayed bullish through the 115->69
@@ -178,8 +178,8 @@ input double SameDirTaperMult      = 0.5;      // lot mult per existing same-dir
 //    MaxConcurrentBaskets. Still requires Goldminer + ADX/angle + session + stats/sizing
 //    gates (UNBLOCKS quality trades; never forces rejected ones -- the failed gold ride's
 //    defect). The rescue basket is a normal basket: own +$ escape, own floor. Default OFF.
-input bool AllowOppositeWhenDeep = false;    // unblock opposite-direction baskets while the book is deep
-input double OppositeWhenDeepPct   = 5.0;      // ...book float <= -this% of balance arms the unblock
+const bool AllowOppositeWhenDeep = true;    // unblock opposite-direction baskets while the book is deep  // LOCKED (was input)
+const double OppositeWhenDeepPct   = 2.0;      // ...book float <= -this% of balance arms the unblock  // LOCKED (was input)
 //    S24 completes fib C's EXIT choreography (S23 A/B: every drowning cluster shrank + DD$
 //    -28%, but net -32% because the rescue basket was left to fend for itself -- it won
 //    during the continuation then bled its gains back on the bounce while the losers
@@ -187,14 +187,14 @@ input double OppositeWhenDeepPct   = 5.0;      // ...book float <= -this% of bal
 //    open: (a) the LOSING side stops grid-adding (stop feeding the loser), (b) the WHOLE
 //    book (losers + rescue) closes together at +RescueBookTargetUSD (fib C's
 //    RecoveryTargetUSD). 0 = disabled (S23 behaviour).
-input double RescueBookTargetUSD   = 50.0;     // close the whole book at +this while rescued (0 = off)
+const double RescueBookTargetUSD   = 50.0;     // close the whole book at +this while rescued (0 = off)  // LOCKED (was input)
 //    S25 adds fib C's THIRD ingredient -- GROW the winning side. S24 A/B showed one rescue
 //    basket (~1/3 of the losing exposure) cannot overtake 2-3 drowning baskets, so the book
 //    never reaches the exit target before the floors fire. fib C rode EVERY winning-side
 //    signal until the book recovered. RescueMaxBaskets grants up to N rescue slots beyond
 //    MaxConcurrentBaskets while the book stays deep; each entry still needs its own
 //    Goldminer signal + quality gates. 1 = S23/S24 behaviour.
-input int RescueMaxBaskets      = 1;        // rescue slots beyond MaxConcurrentBaskets (fib C ramp: 2-3)
+const int RescueMaxBaskets      = 3;        // rescue slots beyond MaxConcurrentBaskets (fib C ramp: 2-3)  // LOCKED (was input)
 //--- equity-DD reducer (default OFF = locked config unchanged): close a LOSING basket when D1 trend flips AGAINST it
 //    (the regime change that turns a recoverable dip into a one-way bleed) -> caps the tail before the -20% floor,
 //    lowering intraday equity DD so the proven engine can be sized bigger. Validate every-tick vs the $7,908 baseline.

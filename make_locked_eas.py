@@ -105,8 +105,24 @@ MT5_CONFIGS = {
         },
     },
     "OIL": {     # $7,567 / PF 2.29 / 14.85% eqDD / Rec 4.17 lock (floor 10, sizing on, 2026-06-11)
+                 # + RESCUE LOCKED 2026-07-12 (the fib C recovery-hedge transplant, full choreography:
+                 #   S23 unblock + S24 stop-feeding/book-exit + S25 ramp). Cross-venue gate PASSED at
+                 #   2/3/50: PEP RF 3.23->3.63 / eqDD 19.47->16.92%; XM RF 2.78->3.08 / eqDD
+                 #   20.46->18.24%. Full inverted-U curve: cliff at 1% (RF 2.17), plateau 2-3%
+                 #   (4 cells RF 3.46-3.63), fade by 5% (3.06). New anchors (Dec-01->Jul-12, $3k):
+                 #   PEP $8,188/PF2.04/16.92%/RF3.63/166tr; XM $6,117/PF1.85/18.24%/RF3.08/159tr.
+                 #   Staged/gate/taper levers = NOT-FOR-OIL (6 rejections 07-12) -> hard-coded OFF.
         "symbols": ["OILCash", "SpotCrude"],
+        "keep": {"UseSignalLog"},
+        "buildsuffix": "-RSQ2",
         "values": {
+            "AllowOppositeWhenDeep": "true",   # LOCKED 2026-07-12 (cross-venue gate)
+            "OppositeWhenDeepPct": "2.0",
+            "RescueMaxBaskets": "3",
+            "RescueBookTargetUSD": "50.0",
+            "UseStagedFloor": "false", "UseStagedFloorPortfolio": "false",
+            "UseSameDirBasketGate": "false", "UseSameDirTaper": "false",
+            "DailyMA_Period": "50",            # D1-speed sweep closed: 50 validated (20/30 strictly worse)
             "StatsCollectionMode": "false", "StatsCSVFile": '"gridstat_setups_oil_mt5.csv"',
             "grisk": "4", "StatsFilterEnabled": "false", "MinWinRate": "0.50", "MinSamples": "10",
             "UseSizingTable": "true", "SizingCSVFile": '"gridstat_sizing_oil.csv"', "MaxSizeMult": "2.0",
