@@ -1,6 +1,5 @@
 //+------------------------------------------------------------------+
 //| GENERATED FILE -- LOCKED GOLD config. Do NOT edit by hand.       
-//| Source of truth: Marius GridStat MT5 v1.0.mq5 (build S19).     
 //| Regenerate after any master change:  python make_locked_eas.py    
 //+------------------------------------------------------------------+
 //+------------------------------------------------------------------+
@@ -198,7 +197,7 @@ int OnInit()
       Print("LOCKED GOLD EA attached to WRONG symbol: ", _Symbol, " (accepts: GOLD/XAUUSD). ABORTING.");
       return(INIT_FAILED);
    }
-   Print("LOCKED GOLD EA -- all inputs hard-coded (generated 2026-07-12 from master S19); only StagedFloor/SignalLog visible");
+   Print("LOCKED GOLD EA -- all inputs hard-coded (generated 2026-07-12); only StagedFloor levers visible");
    point = (_Digits == 3 || _Digits == 5) ? _Point * 10 : _Point;
    hMA      = iMA(_Symbol, PERIOD_CURRENT, MA_Period, 0, MODE_EMA, PRICE_CLOSE);
    hADX     = iADX(_Symbol, PERIOD_CURRENT, ADX_Period);
