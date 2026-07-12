@@ -16,7 +16,7 @@
 #property copyright "Marius"
 #property version   "1.00"
 
-#define EA_BUILD_VERSION "MT5-2026-07-12-S22"
+#define EA_BUILD_VERSION "MT5-2026-07-12-S21"
 #define MAX_PENDING 5000
 
 #include <Trade/Trade.mqh>
@@ -152,17 +152,6 @@ input double StagedFloorPortfolioPct = 8.0;    // ...at TOTAL float <= -this% of
 //    winners untouched, recovery adds inside existing baskets unaffected). Default OFF.
 input bool   UseSameDirBasketGate  = false;    // block new same-direction baskets while that side is deep
 input double SameDirGateLossPct    = 2.0;      // ...existing same-dir float <= -this% of balance blocks
-//--- SAME-DIRECTION SIZE TAPER (2026-07-12, S22): the GATE version above is RF-negative on
-//    oil (PEP A/B @2%: blocked 22% of 89%-win flow to save 21% DD$ -> RF 3.23->2.98). Per
-//    [[rigor-drives-sizing-not-gating]]: don't BLOCK the pile-in entry -- SHRINK it. A new
-//    basket opening in direction D while D-side floats NEGATIVE opens at
-//    SameDirTaperMult^(existing D-baskets) size: every winner still fires and pays; only the
-//    correlated drown-together tail shrinks. Folds into g_clusterSizeMult -> applies to the
-//    INITIAL entry only, same semantics as the sizing table (grid legs stay base size --
-//    the observed oil tail anatomy is ONE-leg baskets, so the initial entry IS the exposure).
-//    Default OFF.
-input bool   UseSameDirTaper       = false;    // taper new same-direction basket SIZE while that side is losing
-input double SameDirTaperMult      = 0.5;      // lot mult per existing same-dir basket (0.5 -> 2nd=half, 3rd=quarter)
 //--- equity-DD reducer (default OFF = locked config unchanged): close a LOSING basket when D1 trend flips AGAINST it
 //    (the regime change that turns a recoverable dip into a one-way bleed) -> caps the tail before the -20% floor,
 //    lowering intraday equity DD so the proven engine can be sized bigger. Validate every-tick vs the $7,908 baseline.
@@ -266,9 +255,6 @@ int OnInit()
       Print("CONFIG | UseSameDirBasketGate=", UseSameDirBasketGate,
             " SameDirGateLossPct=", DoubleToString(SameDirGateLossPct,1),
             "% (block new same-dir baskets while that side is deep)");
-      Print("CONFIG | UseSameDirTaper=", UseSameDirTaper,
-            " SameDirTaperMult=", DoubleToString(SameDirTaperMult,2),
-            " (size-taper new same-dir baskets while that side is losing)");
       {
          int _szh = FileOpen(SizingCSVFile, FILE_READ|FILE_CSV|FILE_COMMON|FILE_ANSI, ',');
          Print("CONFIG | sizing file '", SizingCSVFile, "' open: ",
@@ -657,17 +643,6 @@ void OnTick()
    if(skip != "") return;                                  // any failed gate -> no trade (same as before)
 
    g_clusterSizeMult = (szMult > 0) ? szMult : 1.0;
-   if(UseSameDirTaper)
-   {
-      int nSD = CountSameDirBaskets(dir);
-      if(nSD > 0 && SameDirFloat(dir) < 0)
-      {
-         for(int q=0; q<nSD; q++) g_clusterSizeMult *= SameDirTaperMult;
-         Print("SAMEDIR TAPER: new ", (dir==(int)ORDER_TYPE_BUY?"BUY":"SELL"),
-               " basket sized x", DoubleToString(g_clusterSizeMult,2),
-               " (", nSD, " same-dir basket(s) losing)");
-      }
-   }
    int newBid = (maxB > 1) ? NextBasketId() : -1;          // tag baskets only in multi mode (single mode untagged = original path)
    g_clusterSetup = key;
    double lot;
@@ -685,28 +660,6 @@ void OnTick()
 double Ask_()  { return SymbolInfoDouble(_Symbol, SYMBOL_ASK); }
 double Bid_()  { return SymbolInfoDouble(_Symbol, SYMBOL_BID); }
 double Bal_()  { return AccountInfoDouble(ACCOUNT_BALANCE); }
-
-// number of DISTINCT baskets currently open in ONE direction (hedge legs excluded) --
-// drives the same-direction size taper exponent.
-int CountSameDirBaskets(int dir)
-{
-   int ids[50]; int n = 0;
-   for(int i=PositionsTotal()-1; i>=0; i--)
-   {
-      ulong tk = PositionGetTicket(i);
-      if(tk==0 || !PositionSelectByTicket(tk)) continue;
-      if(PositionGetInteger(POSITION_MAGIC) != MagicNumber) continue;
-      if(PositionGetString(POSITION_SYMBOL) != _Symbol) continue;
-      string cmt = PositionGetString(POSITION_COMMENT);
-      if(StringFind(cmt, "_HEDGE") >= 0) continue;
-      if((int)PositionGetInteger(POSITION_TYPE) != dir) continue;
-      int b = BasketIdOf(cmt);
-      bool seen = false;
-      for(int k=0; k<n; k++) if(ids[k]==b) { seen=true; break; }
-      if(!seen && n < 50) ids[n++] = b;
-   }
-   return n;
-}
 
 // combined float of this EA's basket legs in ONE direction (hedge legs excluded) --
 // the same-direction basket gate's measure of "is this side already deep?"
