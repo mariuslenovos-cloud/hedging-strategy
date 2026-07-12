@@ -52,13 +52,15 @@ MASTER_MT4_SILVER = os.path.join(TERMINALS["XM-MT4"]["experts"], "Marius GridSta
 MASTER_MT4_OIL    = os.path.join(TERMINALS["PEP-MT4"]["experts"], "Marius GridStat OIL v1.0.mq4")      # MT4-conc port lives on PEP only (build 2026-07-01-P-MT4CONC)
 EA_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "ea")
 STAMP = "2026-07-12"
-BASE_MT5, BASE_MT4 = "S20", "T"
+BASE_MT5, BASE_MT4 = "S21", "T"
 
-# silver/oil keep BOTH staged levers visible (per-basket + the S20 portfolio variant)
-# for their pending sweeps; gold overrides keep per-config (staged locked SF12, conc=1
-# makes the portfolio variant unreachable anyway).
+# silver/oil keep the ACTIVE research levers visible; gold overrides keep per-config
+# (staged locked SF12; conc=1 makes portfolio-staged unreachable + same-dir gate moot).
+# Staged-floor levers: NOT-FOR-OIL verdict 2026-07-12 (per-basket inert, book-level cut
+# recoverable floats -> net -14%) but kept visible for silver's pending sweep.
 KEEP_MT5 = {"UseStagedFloor", "StagedFloorPct",
-            "UseStagedFloorPortfolio", "StagedFloorPortfolioPct", "UseSignalLog"}
+            "UseStagedFloorPortfolio", "StagedFloorPortfolioPct",
+            "UseSameDirBasketGate", "SameDirGateLossPct", "UseSignalLog"}
 
 MT5_CONFIGS = {
     "GOLD": {   # STAGED FLOOR LOCKED 2026-07-12 (real-tick gate PASSED both venues: XM eqDD 20.21->11.59%,

@@ -20,7 +20,7 @@
 #property copyright "Marius"
 #property version   "1.00"
 
-#define EA_BUILD_VERSION "MT5-2026-07-12-S20-GOLD-SF12-LOCKED"
+#define EA_BUILD_VERSION "MT5-2026-07-12-S21-GOLD-SF12-LOCKED"
 #define MAX_PENDING 5000
 
 #include <Trade/Trade.mqh>
@@ -147,6 +147,15 @@ const double StagedFloorPct        = 12.0;     // ...at basket float <= -this% o
 //    use the per-basket lever -- identical there by construction). Default OFF.
 const bool UseStagedFloorPortfolio = false;  // book-level staged cut (oil/silver, conc>1)  // LOCKED (was input)
 const double StagedFloorPortfolioPct = 8.0;    // ...at TOTAL float <= -this% of balance (< BasketMaxLossPct)  // LOCKED (was input)
+//--- SAME-DIRECTION BASKET GATE (2026-07-12, S21): oil's six ~-$1,0xx-1,4xx events are N
+//    same-direction ONE-leg baskets drowning together (3x correlated exposure to one move),
+//    and BOTH staged-floor variants failed there (per-basket inert; book-level cut realized
+//    recoverable floats -> net -14%/DD +9pp). This lever refuses to COMPOUND a losing bet
+//    instead of cutting one: block a NEW basket in direction D while the existing D-direction
+//    legs float <= -SameDirGateLossPct% of balance. Gate-respecting (no forced realizations,
+//    winners untouched, recovery adds inside existing baskets unaffected). Default OFF.
+const bool UseSameDirBasketGate  = false;    // block new same-direction baskets while that side is deep  // LOCKED (was input)
+const double SameDirGateLossPct    = 2.0;      // ...existing same-dir float <= -this% of balance blocks  // LOCKED (was input)
 //--- equity-DD reducer (default OFF = locked config unchanged): close a LOSING basket when D1 trend flips AGAINST it
 //    (the regime change that turns a recoverable dip into a one-way bleed) -> caps the tail before the -20% floor,
 //    lowering intraday equity DD so the proven engine can be sized bigger. Validate every-tick vs the $7,908 baseline.
@@ -255,6 +264,9 @@ int OnInit()
       Print("CONFIG | UseStagedFloorPortfolio=", UseStagedFloorPortfolio,
             " StagedFloorPortfolioPct=", DoubleToString(StagedFloorPortfolioPct,1),
             "% (book-level worst-leg cut, conc>1 only)");
+      Print("CONFIG | UseSameDirBasketGate=", UseSameDirBasketGate,
+            " SameDirGateLossPct=", DoubleToString(SameDirGateLossPct,1),
+            "% (block new same-dir baskets while that side is deep)");
       {
          int _szh = FileOpen(SizingCSVFile, FILE_READ|FILE_CSV|FILE_COMMON|FILE_ANSI, ',');
          Print("CONFIG | sizing file '", SizingCSVFile, "' open: ",
@@ -632,6 +644,12 @@ void OnTick()
    if(skip=="" && UseSizingTable && szMult <= 0) skip = "sizingZero";
    int maxB = (MaxConcurrentBaskets < 1) ? 1 : MaxConcurrentBaskets;
    if(skip=="" && CountOpenBaskets() >= maxB) skip = "maxBaskets("+IntegerToString(maxB)+")";
+   if(skip=="" && UseSameDirBasketGate)
+   {
+      double sdF = SameDirFloat(dir);
+      if(sdF <= -SameDirGateLossPct/100.0 * Bal_())
+         skip = "sameDirDeep("+DoubleToString(sdF,0)+")";
+   }
 
    LogSignal(dir, key, wpr, adx, maAngle, bull, wr, ns, (skip=="" ? "TRADE" : "SKIP:"+skip));
    if(skip != "") return;                                  // any failed gate -> no trade (same as before)
@@ -654,6 +672,24 @@ void OnTick()
 double Ask_()  { return SymbolInfoDouble(_Symbol, SYMBOL_ASK); }
 double Bid_()  { return SymbolInfoDouble(_Symbol, SYMBOL_BID); }
 double Bal_()  { return AccountInfoDouble(ACCOUNT_BALANCE); }
+
+// combined float of this EA's basket legs in ONE direction (hedge legs excluded) --
+// the same-direction basket gate's measure of "is this side already deep?"
+double SameDirFloat(int dir)
+{
+   double f = 0;
+   for(int i=PositionsTotal()-1; i>=0; i--)
+   {
+      ulong tk = PositionGetTicket(i);
+      if(tk==0 || !PositionSelectByTicket(tk)) continue;
+      if(PositionGetInteger(POSITION_MAGIC) != MagicNumber) continue;
+      if(PositionGetString(POSITION_SYMBOL) != _Symbol) continue;
+      if(StringFind(PositionGetString(POSITION_COMMENT), "_HEDGE") >= 0) continue;
+      if((int)PositionGetInteger(POSITION_TYPE) != dir) continue;
+      f += PositionGetDouble(POSITION_PROFIT) + PositionGetDouble(POSITION_SWAP);
+   }
+   return f;
+}
 double DollarPerPricePerLot()
 {
    double ts = SymbolInfoDouble(_Symbol, SYMBOL_TRADE_TICK_SIZE);
