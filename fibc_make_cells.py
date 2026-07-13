@@ -55,6 +55,11 @@ CELLS = {
     #     SLV2 = gate off (fib C's original ungated design).
     "SLV1": {"FirstGateStatsCSV": '"gridstat_setups_silver_mt5.csv"'},
     "SLV2": {"UseFirstEntryGate": "false"},
+    # round 4 (2026-07-13): F1X (trail 40/10) = best fib C on record
+    # (RF 2.06->3.62, eqDD 27.5->17.9%, net UP). Plateau check around it:
+    "XA": {"MinFloatToActivate": "30.0", "BasketTrailAmount": "10.0"},
+    "XB": {"MinFloatToActivate": "50.0", "BasketTrailAmount": "10.0"},
+    "XC": {"MinFloatToActivate": "40.0", "BasketTrailAmount": "15.0"},
 }
 INPUT_RE = re.compile(r"^input\s+(\w+)\s+(\w+)(\s*)=\s*([^;]+);(.*)$")
 
