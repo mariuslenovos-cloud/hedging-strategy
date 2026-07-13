@@ -50,6 +50,7 @@ MASTER_MT5        = os.path.join(TERMINALS["XM-MT5"]["experts"], "Marius GridSta
 MASTER_MT4_GOLD   = os.path.join(TERMINALS["XM-MT4"]["experts"], "Marius GridStat GOLD v1.0.mq4")
 MASTER_MT4_SILVER = os.path.join(TERMINALS["XM-MT4"]["experts"], "Marius GridStat SILVER v1.0.mq4")   # byte-identical to the PEP copy (md5-verified 07-12)
 MASTER_MT4_OIL    = os.path.join(TERMINALS["PEP-MT4"]["experts"], "Marius GridStat OIL v1.0.mq4")      # MT4-conc port lives on PEP only (build 2026-07-01-P-MT4CONC)
+MASTER_FIBC       = os.path.join(TERMINALS["XM-MT5"]["experts"], "Marius Hedger M5 fib C MT5 v1.0.mq5")  # fib C research master
 EA_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "ea")
 STAMP = "2026-07-12"
 BASE_MT5, BASE_MT4 = "S25", "T"
@@ -213,8 +214,11 @@ def transform(master_src, tag, cfg, keep_inputs, build_tag):
             else:
                 out.append(f"const {typ} {name}{pad}= {val};{tail}  // LOCKED (was input)")
             continue
-        if 'EA_BUILD_VERSION' in ln and '#define' in ln:
+        if '#define' in ln and 'EA_BUILD_VERSION' in ln:
             out.append(f'#define EA_BUILD_VERSION "{build_tag}"')
+            continue
+        if ln.startswith('#define BUILD '):
+            out.append(f'#define BUILD "{build_tag}"')
             continue
         out.append(ln)
     missing = set(cfg["values"]) - seen
@@ -287,6 +291,48 @@ def main():
             io.open(path, "w", encoding="utf-8").write(body)
             results.append((term, fname, compile_one(TERMINALS[term]["me"], path)))
         io.open(os.path.join(EA_DIR, fname), "w", encoding="utf-8").write(body)
+
+    # --- job 2b: fib C LOCKED (exit XC=40/15, locked 2026-07-13; cross-venue gate
+    #     PASSED: XM RF 2.06->3.93 / eqDD 27.5->17.0%; PEP RF 1.58->3.85 / 31.4->17.3%;
+    #     8-leg cluster events deleted on BOTH feeds. Full inverted-U: 30/40/50/60-arm
+    #     curve, twin-cell plateau XB/XC. Anchors: XM $3,859/PF2.16/17.0%/RF3.93/150tr;
+    #     PEP $3,734/PF2.19/17.3%/RF3.85/135tr. All other values = the live chart
+    #     config verified by screenshot 2026-07-13, pinned explicitly vs default drift.)
+    fibc_cfg = {
+        "symbols": ["GOLD", "XAUUSD"],
+        "values": {
+            "LotSize": "0.02", "UseFibonacci": "true", "UseCompounding": "true",
+            "CompoundingBase": "3000.0", "MaxSameTrades": "5", "MaxFibMult": "0",
+            "MaxCompoundScale": "3", "RecoverySizeMode": "1", "RecoveryRR": "3.0",
+            "RecoveryCostBuffer": "1.1", "grisk": "7",
+            "MA_Angle_Threshold": "20.0", "ADX_Threshold": "25.0",
+            "UseSessionFilter": "true", "SessionStartHour": "9", "SessionEndHour": "23",
+            "UseBasketTrail": "true",
+            "MinFloatToActivate": "40.0",   # THE LOCK (was 80)
+            "BasketTrailAmount": "15.0",
+            "UseBuySellProfitThreshold": "true", "BuySellProfitThreshold": "50.0",
+            "UseBasketStop": "true", "BasketMaxLossPct": "20.0",
+            "UseDailyTrendFilter": "true", "DailyMA_Period": "50",
+            "UseImbalanceLock": "true", "ImbalanceThreshold": "2",
+            "UseVolRegimeFilter": "true", "VolRegimeMult": "2.5",
+            "VolBlockAllEntries": "true", "VolScaledFloor": "false",
+            "UseOverextFilter": "false",
+            "UseFirstEntryGate": "true", "FirstGateStatsCSV": '"gridstat_setups_gold.csv"',
+            "FirstGateMinWinRate": "0.55", "FirstGateSellMinWinRate": "0.65",
+            "FirstGateMinSamples": "10",
+            "UseRecoveryHedge": "true", "HedgeTriggerLoss": "0.0",
+            "HedgeTriggerPctBal": "3.0", "RecoveryTargetUSD": "40.0",
+            "UseRecoveryTrail": "true", "RecoveryTrailGiveback": "20.0",
+            "RecoveryTargetPct": "10.0",
+        },
+    }
+    fibc_body = transform(read_src(MASTER_FIBC), "FIBC", fibc_cfg, {"UseEquityLog"},
+                          "FIBC-2026-07-13-XC4015-LOCKED")
+    for term in ("XM-MT5", "PEP-MT5"):
+        fpath = os.path.join(TERMINALS[term]["experts"], "Marius Hedger fib C LOCKED.mq5")
+        io.open(fpath, "w", encoding="utf-8").write(fibc_body)
+        results.append((term, "Marius Hedger fib C LOCKED.mq5", compile_one(TERMINALS[term]["me"], fpath)))
+    io.open(os.path.join(EA_DIR, "Marius Hedger fib C LOCKED.mq5"), "w", encoding="utf-8").write(fibc_body)
 
     # --- job 3: MT4 locked EAs, per-job master + deploy list
     for job in MT4_JOBS:
