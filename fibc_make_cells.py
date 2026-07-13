@@ -34,6 +34,11 @@ CELLS = {
     "F2A": {"UseDailyTrendFilter": "false", "ADX_Threshold": "15.0"},
     "F4A": {"UseDailyTrendFilter": "false", "FirstGateSellMinWinRate": "0.55",
             "ADX_Threshold": "15.0"},
+    # round 2 (2026-07-13): grisk re-tune -- MORE signals of RETUNED quality
+    # (GridStat gold precedent: 7->4 = +52% net at same DD). Guards stay at
+    # the F1 baseline (D1 on, gate 0.55/0.65) -- one variable per cell.
+    "G5": {"grisk": "5"},
+    "G4": {"grisk": "4"},
 }
 INPUT_RE = re.compile(r"^input\s+(\w+)\s+(\w+)(\s*)=\s*([^;]+);(.*)$")
 
