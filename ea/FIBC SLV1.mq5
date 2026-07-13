@@ -134,7 +134,7 @@ int      gEqHandle=INVALID_HANDLE;
 int OnInit()
 {
 
-   Print("FIBC TEST CELL SLV1 -- zero-input build; deltas: FirstGateStatsCSV="gridstat_setups_silver_mt5.csv"");
+   Print("FIBC TEST CELL SLV1 -- zero-input build; deltas: FirstGateStatsCSV='gridstat_setups_silver_mt5.csv'");
    point = (_Digits==3 || _Digits==5) ? _Point*10 : _Point;
    hMA   = iMA(_Symbol, PERIOD_CURRENT, MA_Period, 0, MODE_EMA, PRICE_CLOSE);
    hADX  = iADX(_Symbol, PERIOD_CURRENT, ADX_Period);

@@ -76,9 +76,8 @@ def transform(src, tag, values):
     if missing: raise SystemExit(f"{tag}: unknown inputs {missing}")
     src2 = "\n".join(out)
     anchor = "int OnInit()\n{\n"
-    guard = (f'\n   Print("FIBC TEST CELL {tag} -- zero-input build; deltas: '
-             + (", ".join(f"{k}={v}" for k, v in values.items()) or "none (baseline)")
-             + '");\n')
+    deltas = ", ".join(f"{k}={v}".replace('"', "'") for k, v in values.items()) or "none (baseline)"
+    guard = f'\n   Print("FIBC TEST CELL {tag} -- zero-input build; deltas: {deltas}");\n'
     if anchor not in src2: raise SystemExit(f"{tag}: OnInit anchor missing")
     src2 = src2.replace(anchor, anchor + guard, 1)
     hdr = (f"//| GENERATED TEST CELL {tag} -- do not edit; regen via fibc_make_cells.py |\n")
