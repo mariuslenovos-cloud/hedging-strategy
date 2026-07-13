@@ -39,6 +39,22 @@ CELLS = {
     # the F1 baseline (D1 on, gate 0.55/0.65) -- one variable per cell.
     "G5": {"grisk": "5"},
     "G4": {"grisk": "4"},
+    # round 3 (2026-07-13, user directive: fib C frequency stays OPEN):
+    # (i) EXIT-FLOW PAIRING -- rounds 1-2 changed entries against exits tuned
+    #     for sparse flow (F2 harvested $17.1k gross at PF 1.25 = conversion
+    #     problem, not flow problem). Pair denser streams with FASTER exits.
+    "F1X": {"MinFloatToActivate": "40.0", "BasketTrailAmount": "10.0"},
+    "F2X": {"UseDailyTrendFilter": "false",
+            "MinFloatToActivate": "40.0", "BasketTrailAmount": "10.0"},
+    "G4X": {"grisk": "4",
+            "MinFloatToActivate": "40.0", "BasketTrailAmount": "10.0"},
+    # (ii) SESSION WIDEN -- census: ~40% of signals fall outside 9-23.
+    "F1S": {"SessionStartHour": "2"},
+    # (iii) BREADTH -- fib C is symbol-agnostic; run these on a SILVER M5
+    #     chart. SLV1 gates first entries on SILVER's own validated DB;
+    #     SLV2 = gate off (fib C's original ungated design).
+    "SLV1": {"FirstGateStatsCSV": '"gridstat_setups_silver_mt5.csv"'},
+    "SLV2": {"UseFirstEntryGate": "false"},
 }
 INPUT_RE = re.compile(r"^input\s+(\w+)\s+(\w+)(\s*)=\s*([^;]+);(.*)$")
 
