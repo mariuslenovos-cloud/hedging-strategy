@@ -60,6 +60,7 @@ CELLS = {
     "XA": {"MinFloatToActivate": "30.0", "BasketTrailAmount": "10.0"},
     "XB": {"MinFloatToActivate": "50.0", "BasketTrailAmount": "10.0"},
     "XC": {"MinFloatToActivate": "40.0", "BasketTrailAmount": "15.0"},
+    "XD": {"MinFloatToActivate": "60.0", "BasketTrailAmount": "10.0"},
 }
 INPUT_RE = re.compile(r"^input\s+(\w+)\s+(\w+)(\s*)=\s*([^;]+);(.*)$")
 
