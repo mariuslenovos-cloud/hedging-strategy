@@ -61,6 +61,12 @@ CELLS = {
     "XB": {"MinFloatToActivate": "50.0", "BasketTrailAmount": "10.0"},
     "XC": {"MinFloatToActivate": "40.0", "BasketTrailAmount": "15.0"},
     "XD": {"MinFloatToActivate": "60.0", "BasketTrailAmount": "10.0"},
+    # round 5 (2026-07-14): the GridStat capital campaign's lesson flows BACK --
+    # fib C's cap=3 was locked pre-XC-exit and cap 2 was NEVER tested (only 3/4/
+    # uncapped). GridStat: cap 2 = growth-optimal, cap 1 = fortress. These cells
+    # = the LOCKED XC config (trail 40/15) with only the cap changed.
+    "CAP2": {"MinFloatToActivate": "40.0", "MaxCompoundScale": "2"},
+    "CAP1": {"MinFloatToActivate": "40.0", "MaxCompoundScale": "1"},
 }
 INPUT_RE = re.compile(r"^input\s+(\w+)\s+(\w+)(\s*)=\s*([^;]+);(.*)$")
 
