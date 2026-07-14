@@ -20,7 +20,7 @@
 #property copyright "Marius"
 #property version   "1.00"
 
-#define EA_BUILD_VERSION "MT5-2026-07-12-S26-GOLD-SF12-LOCKED"
+#define EA_BUILD_VERSION "MT5-2026-07-12-S26-GOLD-SF12C2-LOCKED"
 #define MAX_PENDING 5000
 
 #include <Trade/Trade.mqh>
@@ -94,7 +94,7 @@ const double CompoundingBase       = 3000.0;  // LOCKED (was input)
 //    $8k of $13k). fib C's frontier: capping the COMPOUNDING multiplier (not recovery
 //    levers) curbs the grown-account give-back -- MaxCompoundScale=3 dominated.
 //    0 = uncapped (original behaviour, locked configs unchanged).
-const int MaxCompoundScale      = 0;        // cap floor(balance/CompoundingBase); 0 = uncapped  // LOCKED (was input)
+const int MaxCompoundScale      = 2;        // cap floor(balance/CompoundingBase); 0 = uncapped  // LOCKED (was input)
 //--- Grid-ladder shaping (Session 23, ported from MT4 build S): cap the fib multiplier of grid legs.
 //    The fib ladder 1,1,2,3,5 is a martingale putting the BIGGEST lots at the WORST prices -- the deep
 //    legs carried 40%+ of every observed floor loss (MT4 A/B: MaxFibMult=1 -> zero basket stops, net +86%,

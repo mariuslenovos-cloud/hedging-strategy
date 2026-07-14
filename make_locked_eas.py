@@ -77,9 +77,17 @@ MT5_CONFIGS = {
                 # New anchors (Dec-01->Jul-12, $3k): XM $9,082/PF3.29/11.59%/194tr; PEP $9,342/PF3.39/11.33%/195tr.
                 # Pre-staged anchors (archived): XM $9,479/PF3.52/20.21%/191tr; PEP $9,741/PF3.63/19.15%/192tr.
         "symbols": ["GOLD", "XAUUSD"],
-        "keep": {"UseSignalLog"},          # staged floor now part of the lock -> hard-coded (A/B via the master)
-        "buildsuffix": "-SF12",
+        # + COMPOUNDING CAP LOCKED 2026-07-14 (fib C transplant, S26; C1/C2 capital cells
+        #   exposed uncapped re-inflation: $10k -> eqDD 27.9%/RF 1.24, give-back $8k of $13k).
+        #   CAP2 surface (4 cells, 2 venues): XM5k $9,106/15.2%/RF5.04 - XM10k $10,166/10.4%/5.59
+        #   - PEP3k $8,528/13.0%/5.68 (THE LIVE 51511633 ANCHOR) - PEP10k $10,504/9.9%/6.07.
+        #   CAP1 (flat lots) = the safety alternative (RF 9.13, deposit-independent $8,649).
+        #   Rescue-on-gold tested at 10k: beats uncapped (+$2,811) but DOMINATED by the caps
+        #   (cap removes the very events the rescue treats). User chose CAP2.
+        "keep": {"UseSignalLog"},          # staged floor + comp cap in the lock -> hard-coded (A/B via the master)
+        "buildsuffix": "-SF12C2",
         "values": {
+            "MaxCompoundScale": "2",       # LOCKED 2026-07-14 (4-cell surface, both venues)
             "UseStagedFloor": "true",      # LOCKED 2026-07-12 (gate: MT5 real-tick A/B both venues)
             "StatsCollectionMode": "false", "StatsCSVFile": '"gridstat_setups_gold.csv"',
             "grisk": "4", "StatsFilterEnabled": "true", "MinWinRate": "0.55", "MinSamples": "10",
