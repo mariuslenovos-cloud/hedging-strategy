@@ -1,7 +1,4 @@
-//+------------------------------------------------------------------+
-//| GENERATED FILE -- LOCKED SILVER config. Do NOT edit by hand.       
-//| Regenerate after any master change:  python make_locked_eas.py    
-//+------------------------------------------------------------------+
+//| GENERATED TEST CELL GOLD CAP1 -- regen via gridstat_make_cells.py |
 //+------------------------------------------------------------------+
 //|  Marius GridStat MT5 v1.0 -- STAGE 1: SHADOW LOGGER               |
 //|  Triple-barrier signal-edge measurement on MT5 (any instrument)   |
@@ -20,123 +17,123 @@
 #property copyright "Marius"
 #property version   "1.00"
 
-#define EA_BUILD_VERSION "MT5-2026-07-12-S26-SILVER-LOCKED"
+#define EA_BUILD_VERSION "GS-CELL-GOLD-CAP1-2026-07-14"
 #define MAX_PENDING 5000
 
 #include <Trade/Trade.mqh>
 CTrade trade;   // Stage 2 execution
 
 //--- Mode
-const bool StatsCollectionMode = false;   // SHADOW: log signals + triple-barrier outcomes (Stage 1 is shadow-only)  // LOCKED (was input)
-const string StatsCSVFile        = "gridstat_setups_silver_mt5.csv";  // per-symbol: e.g. gridstat_setups_oil.csv  // LOCKED (was input)
+const bool StatsCollectionMode = false;   // SHADOW: log signals + triple-barrier outcomes (Stage 1 is shadow-only)  // CELL-LOCKED
+const string StatsCSVFile        = "gridstat_setups_gold.csv";  // per-symbol: e.g. gridstat_setups_oil.csv  // CELL-LOCKED
 
 //--- Triple-barrier
-const double BarrierATRMultiplier = 0.8;   // symmetric barrier ATR(D1) mult (used when the asym overrides below = 0)  // LOCKED (was input)
-const double BarrierATRUpper      = 0;     // 0 = symmetric; else UPPER (target) barrier ATR mult -- set > lower to let winners run  // LOCKED (was input)
-const double BarrierATRLower      = 0;     // 0 = symmetric; else LOWER (stop)  barrier ATR mult -- R is measured in units of this (the risk)  // LOCKED (was input)
-const int TimeBarrierBars      = 288;   // time barrier (M5 bars; 288 = 24h)  // LOCKED (was input)
+const double BarrierATRMultiplier = 0.8;   // symmetric barrier ATR(D1) mult (used when the asym overrides below = 0)  // CELL-LOCKED
+const double BarrierATRUpper      = 0;     // 0 = symmetric; else UPPER (target) barrier ATR mult -- set > lower to let winners run  // CELL-LOCKED
+const double BarrierATRLower      = 0;     // 0 = symmetric; else LOWER (stop)  barrier ATR mult -- R is measured in units of this (the risk)  // CELL-LOCKED
+const int TimeBarrierBars      = 288;   // time barrier (M5 bars; 288 = 24h)  // CELL-LOCKED
 
 //--- Goldminer signal (DECOUPLED -- 0 = auto-derive from grisk like the MT4 original)
-const int grisk        = 14;     // MT5-gold optimum (shadow-swept + trade-validated: +52% net vs 7 at same ~20% equity DD). legacy RISK knob; drives auto bands when overrides=0  // LOCKED (was input)
-const int GM_Period    = 0;     // 0 = auto (grisk*2+3); else fixed WPR period  // LOCKED (was input)
-const double GM_UpperBand = 0;     // 0 = auto (grisk+67); overbought threshold  // LOCKED (was input)
-const double GM_LowerBand = 0;     // 0 = auto (33-grisk); oversold threshold  // LOCKED (was input)
-const double GM_GapMult   = 2.0;   // gap detector: jump >= this * avgRange -> period 3  // LOCKED (was input)
-const int GM_GapMode   = 0;     // 0 = original |Open-PrevClose| (MT4-equiv, ~dead on continuous CFDs); 1 = |Close-PrevClose| close-to-close jump (activates the runner detector on gold/oil)  // LOCKED (was input)
-const double GM_FastMult  = 4.6;   // fast-move detector: |Close[i+3]-Close[i]| >= this * avgRange -> period 4  // LOCKED (was input)
-const int goldminershift = 1;   // evaluate signal on this shift (1 = last closed bar)  // LOCKED (was input)
+const int grisk        = 4;     // MT5-gold optimum (shadow-swept + trade-validated: +52% net vs 7 at same ~20% equity DD). legacy RISK knob; drives auto bands when overrides=0  // CELL-LOCKED
+const int GM_Period    = 0;     // 0 = auto (grisk*2+3); else fixed WPR period  // CELL-LOCKED
+const double GM_UpperBand = 0;     // 0 = auto (grisk+67); overbought threshold  // CELL-LOCKED
+const double GM_LowerBand = 0;     // 0 = auto (33-grisk); oversold threshold  // CELL-LOCKED
+const double GM_GapMult   = 2.0;   // gap detector: jump >= this * avgRange -> period 3  // CELL-LOCKED
+const int GM_GapMode   = 0;     // 0 = original |Open-PrevClose| (MT4-equiv, ~dead on continuous CFDs); 1 = |Close-PrevClose| close-to-close jump (activates the runner detector on gold/oil)  // CELL-LOCKED
+const double GM_FastMult  = 4.6;   // fast-move detector: |Close[i+3]-Close[i]| >= this * avgRange -> period 4  // CELL-LOCKED
+const int goldminershift = 1;   // evaluate signal on this shift (1 = last closed bar)  // CELL-LOCKED
 
 //--- Feature-importance instrumentation (UNIVERSAL -- improves gold/silver selection too, not just oil)
 //    Logs the features the coarse DIR|SESSION|ATR fingerprint throws away, so feature-importance
 //    can find sharper, higher-P&L setup cuts per symbol (run on gold/silver/oil shadow alike).
-const int RunupBars = 12;        // dip-vs-continuation: directional price move over last N bars before entry (/ATR)  // LOCKED (was input)
+const int RunupBars = 12;        // dip-vs-continuation: directional price move over last N bars before entry (/ATR)  // CELL-LOCKED
 
 //--- Entry filters (so shadow measures only signals that WOULD be tradeable)
-const double MA_Angle_Threshold = 20.0;  // LOCKED (was input)
-const int MA_Period          = 20;  // LOCKED (was input)
-const int ADX_Period         = 14;  // LOCKED (was input)
-const double ADX_Threshold      = 25.0;  // LOCKED (was input)
-const bool UseDailyTrendFilter = true;  // LOCKED (was input)
-input int DailyMA_Period      = 50;
-const bool UseSessionFilter    = true;  // LOCKED (was input)
-const int SessionStartHour    = 9;  // LOCKED (was input)
-const int SessionEndHour      = 23;  // LOCKED (was input)
+const double MA_Angle_Threshold = 20.0;  // CELL-LOCKED
+const int MA_Period          = 20;  // CELL-LOCKED
+const int ADX_Period         = 14;  // CELL-LOCKED
+const double ADX_Threshold      = 25.0;  // CELL-LOCKED
+const bool UseDailyTrendFilter = true;  // CELL-LOCKED
+const int DailyMA_Period      = 50;  // CELL-LOCKED
+const bool UseSessionFilter    = true;  // CELL-LOCKED
+const int SessionStartHour    = 9;  // CELL-LOCKED
+const int SessionEndHour      = 23;  // CELL-LOCKED
 
 //=== STAGE 2 -- TRADE EXECUTION (only when StatsCollectionMode = false) ===
 //--- Entry win-rate gate (mirrors locked GOLD: reads StatsCSVFile = the shadow DB)
-const bool StatsFilterEnabled    = true;  // LOCKED (was input)
-const double MinWinRate            = 0.50;  // LOCKED (was input)
-const int MinSamples            = 10;  // LOCKED (was input)
+const bool StatsFilterEnabled    = true;  // CELL-LOCKED
+const double MinWinRate            = 0.55;  // CELL-LOCKED
+const int MinSamples            = 10;  // CELL-LOCKED
 //--- SIGNAL DIAGNOSTIC LOG (default OFF). Logs EVERY Goldminer fire + each gate's value/pass-fail +
 //    the final TRADE/SKIP decision -> gridstat_signals_<symbol>.csv (Common\Files, per-symbol = no clobber).
 //    Zero effect on trade behaviour; turn ON to see exactly why a signal was/wasn't taken (e.g. MT4 vs MT5 divergence).
-input bool UseSignalLog          = false;
+const bool UseSignalLog          = false;  // CELL-LOCKED
 //--- Overextension regime filter (Ch.17 structural-break; session 19o). Skips entries when price is
 //    stretched far from the D1 mean = the overextension regime that breeds deep-DD/blow-up baskets.
 //    Python MAE study: gold corr(dist,MAE)=-0.61, silver -0.38 (both SEPARATE); oil -0.20 (NO separation
 //    -> leave OFF for oil). DEFAULT OFF = locked configs byte-identical. Trade-mode only (shadow DB untouched).
 //    Validate every-tick: does it lower equity DD without killing net? Per-symbol threshold (gold ~4.5, silver ~8).
-const bool UseOverextensionFilter = false;  // LOCKED (was input)
-const double OverextATRMult         = 4.5;   // skip if |close - D1EMA(DailyMA_Period)| / ATR(D1,60) >= this. 0 = off.  // LOCKED (was input)
+const bool UseOverextensionFilter = false;  // CELL-LOCKED
+const double OverextATRMult         = 4.5;   // skip if |close - D1EMA(DailyMA_Period)| / ATR(D1,60) >= this. 0 = off.  // CELL-LOCKED
 //--- Per-setup bet-sizing (AFML): size ∝ edge. DEFAULT OFF = flat lots (unchanged). When ON, reads
 //    SizingCSVFile (from gridstat_rigor.py): mult>0 sizes the bet (×base lot), mult==0 / unknown = SKIP.
 //    Concentrates capital on high-edge setups (oil: 2× the star BUY|HR_OVL|EXP), zeros negatives.
-const bool UseSizingTable        = false;  // LOCKED (was input)
-const string SizingCSVFile         = "gridstat_sizing_oil.csv";  // LOCKED (was input)
-const double MaxSizeMult           = 2.0;  // LOCKED (was input)
+const bool UseSizingTable        = false;  // CELL-LOCKED
+const string SizingCSVFile         = "gridstat_sizing_oil.csv";  // CELL-LOCKED
+const double MaxSizeMult           = 2.0;  // CELL-LOCKED
 //--- Lot sizing
-const double LotSize               = 0.02;  // LOCKED (was input)
-const bool UseCompounding        = true;  // LOCKED (was input)
-const double CompoundingBase       = 3000.0;  // LOCKED (was input)
+const double LotSize               = 0.02;  // CELL-LOCKED
+const bool UseCompounding        = true;  // CELL-LOCKED
+const double CompoundingBase       = 3000.0;  // CELL-LOCKED
 //--- COMPOUNDING CAP (2026-07-14, S26): the fib C Session-20 lesson transplanted.
 //    C1/C2 capital cells: uncapped compounding re-inflates risk faster than capital
 //    protects ($5k start -> eqDD 36.9%, $10k -> every event at 3x lots, gross give-back
 //    $8k of $13k). fib C's frontier: capping the COMPOUNDING multiplier (not recovery
 //    levers) curbs the grown-account give-back -- MaxCompoundScale=3 dominated.
 //    0 = uncapped (original behaviour, locked configs unchanged).
-input int MaxCompoundScale      = 0;        // cap floor(balance/CompoundingBase); 0 = uncapped
+const int MaxCompoundScale      = 1;        // cap floor(balance/CompoundingBase); 0 = uncapped  // CELL-LOCKED
 //--- Grid-ladder shaping (Session 23, ported from MT4 build S): cap the fib multiplier of grid legs.
 //    The fib ladder 1,1,2,3,5 is a martingale putting the BIGGEST lots at the WORST prices -- the deep
 //    legs carried 40%+ of every observed floor loss (MT4 A/B: MaxFibMult=1 -> zero basket stops, net +86%,
 //    PF 1.64->4.66, DD 21.6->11.7%). 0 = original fib (locked configs byte-identical); 1 = FLAT legs
 //    (all = base lot; float at the adverse extreme shrinks ~60%; escapes need a slightly deeper retrace);
 //    2 = capped ladder 1,1,2,2,2. Validate every-tick per symbol before re-locking.
-const int MaxFibMult            = 0;  // LOCKED (was input)
-const bool UseRiskNormalizedLots = true;   // OFF for gold; ON for volatile symbols (silver/oil)  // LOCKED (was input)
-const double RiskPctPerTrade       = 2.0;  // LOCKED (was input)
-const double MaxRiskPctSkip        = 8.0;  // LOCKED (was input)
+const int MaxFibMult            = 0;  // CELL-LOCKED
+const bool UseRiskNormalizedLots = false;   // OFF for gold; ON for volatile symbols (silver/oil)  // CELL-LOCKED
+const double RiskPctPerTrade       = 3.0;  // CELL-LOCKED
+const double MaxRiskPctSkip        = 8.0;  // CELL-LOCKED
 //--- Hedged grid
-const bool UseATRSpacing         = true;  // LOCKED (was input)
-const double ATRSpacingMultiplier  = 0.5;  // LOCKED (was input)
-const int GridSpacingMinPoints  = 300;  // LOCKED (was input)
-const int GridSpacingMaxPoints  = 2000;  // LOCKED (was input)
-const int MaxGridLevels         = 6;  // LOCKED (was input)
-const int MaxConcurrentBaskets  = 4;    // 1 = one cluster at a time (gold/silver: UNCHANGED path). >1 = allow N independent baskets so a stuck basket can't starve 200+ signals (trending indices/oil). No time/hard stops.  // LOCKED (was input)
-const bool UseHedge              = true;  // LOCKED (was input)
-const int HedgeBreakEvenPoints  = 15000;  // LOCKED (was input)
-const double HedgeRatio            = 1.0;  // LOCKED (was input)
-const double ProfitTargetUSD       = 75.0;   // basket recovery escape + single-position $ cap  // LOCKED (was input)
-const int MaxDaysOpen           = 30;  // LOCKED (was input)
+const bool UseATRSpacing         = true;  // CELL-LOCKED
+const double ATRSpacingMultiplier  = 0.5;  // CELL-LOCKED
+const int GridSpacingMinPoints  = 300;  // CELL-LOCKED
+const int GridSpacingMaxPoints  = 2000;  // CELL-LOCKED
+const int MaxGridLevels         = 6;  // CELL-LOCKED
+const int MaxConcurrentBaskets  = 1;    // 1 = one cluster at a time (gold/silver: UNCHANGED path). >1 = allow N independent baskets so a stuck basket can't starve 200+ signals (trending indices/oil). No time/hard stops.  // CELL-LOCKED
+const bool UseHedge              = true;  // CELL-LOCKED
+const int HedgeBreakEvenPoints  = 15000;  // CELL-LOCKED
+const double HedgeRatio            = 1.0;  // CELL-LOCKED
+const double ProfitTargetUSD       = 100.0;   // basket recovery escape + single-position $ cap  // CELL-LOCKED
+const int MaxDaysOpen           = 30;  // CELL-LOCKED
 //--- Single-position trailing exit (OFF for gold; only used when nLevels<2)
-const bool UseTrailingExit       = false;  // LOCKED (was input)
-const double TrailActivateR        = 1.0;  // LOCKED (was input)
-const double TrailDistanceR        = 0.6;  // LOCKED (was input)
+const bool UseTrailingExit       = false;  // CELL-LOCKED
+const double TrailActivateR        = 1.0;  // CELL-LOCKED
+const double TrailDistanceR        = 0.6;  // CELL-LOCKED
 //--- Lock-and-trail exit (DEFAULT OFF = locked configs unchanged). When ON, a basket that
 //    reaches ProfitTargetUSD does NOT close immediately: it LOCKS the target as a guaranteed
 //    floor and TRAILS the excess (closes when float retraces LockTrailGiveback $ from peak,
 //    but never banks below the locked target). Captures trend continuation past the fixed $
 //    target (the chart problem) without the session-16 trailing failure modes (can't reverse
 //    into a loss; pair with MaxConcurrentBaskets>1 so holding a runner doesn't starve entries).
-const bool UseLockTrailExit      = false;  // LOCKED (was input)
-const double LockTrailGivebackPct  = 15.0;   // % retrace from PEAK that liquidates (once +ProfitTargetUSD armed the ride); break-even is locked so a triggered winner can't become a loss  // LOCKED (was input)
+const bool UseLockTrailExit      = false;  // CELL-LOCKED
+const double LockTrailGivebackPct  = 15.0;   // % retrace from PEAK that liquidates (once +ProfitTargetUSD armed the ride); break-even is locked so a triggered winner can't become a loss  // CELL-LOCKED
 //--- Per-entry hard SL toggle. true = SL at the lower barrier (gold-inherited triple-barrier, current).
 //    false = NO per-entry stop; rely on grid recovery + the catastrophe basket floor (matches the
 //    no-hard-stop hedging philosophy). On pullback-heavy BUY-tilted symbols (oil) the −1R entry stop
 //    fires right before the grid would recover; removing it lets those losers recover. TEST per symbol.
-const bool UseEntrySL            = true;  // LOCKED (was input)
+const bool UseEntrySL            = true;  // CELL-LOCKED
 //--- Basket catastrophic floor (the grid has no inherent stop)
-const bool UseBasketStop         = true;  // LOCKED (was input)
-const double BasketMaxLossPct      = 20.0;  // LOCKED (was input)
+const bool UseBasketStop         = true;  // CELL-LOCKED
+const double BasketMaxLossPct      = 20.0;  // CELL-LOCKED
 //--- STAGED FLOOR (Session 24; user-designed LIVE 2026-07-09, ported from MT4 build T):
 //    when a basket floats <= -StagedFloorPct% of balance, close its single WORST leg --
 //    lightens the basket (avg entry improves, escape pulls closer, floor pushes away)
@@ -144,16 +141,16 @@ const double BasketMaxLossPct      = 20.0;  // LOCKED (was input)
 //    MT4 156-trade-panel sweep: plateau 12-14, RF 3.74 -> 4.99 at 12. Must be
 //    < BasketMaxLossPct or the catastrophic floor fires first. Default OFF = base unchanged.
 //    Threshold is PER-SYMBOL ([[exit-rules-per-symbol]]): gold 12; silver/oil need own sweeps.
-input bool UseStagedFloor        = false;    // cut the worst leg early (default OFF)
-input double StagedFloorPct        = 12.0;     // ...at basket float <= -this% of balance
+const bool UseStagedFloor        = true;    // cut the worst leg early (default OFF)  // CELL-LOCKED
+const double StagedFloorPct        = 12.0;     // ...at basket float <= -this% of balance  // CELL-LOCKED
 //--- PORTFOLIO STAGED FLOOR (2026-07-12): the per-basket staged floor is provably INERT on
 //    multi-basket streams whose pain is N shallow ONE-leg baskets drowning together (oil A/B:
 //    byte-identical, zero fires -- every deep event was the PORTFOLIO floor, no basket near -8%).
 //    This variant = the MT4 original's book-level semantics: TOTAL float <= -this% of balance ->
 //    close the single WORST leg anywhere in the book. Multi-basket path only (conc=1 streams
 //    use the per-basket lever -- identical there by construction). Default OFF.
-input bool UseStagedFloorPortfolio = false;  // book-level staged cut (oil/silver, conc>1)
-input double StagedFloorPortfolioPct = 8.0;    // ...at TOTAL float <= -this% of balance (< BasketMaxLossPct)
+const bool UseStagedFloorPortfolio = false;  // book-level staged cut (oil/silver, conc>1)  // CELL-LOCKED
+const double StagedFloorPortfolioPct = 8.0;    // ...at TOTAL float <= -this% of balance (< BasketMaxLossPct)  // CELL-LOCKED
 //--- SAME-DIRECTION BASKET GATE (2026-07-12, S21): oil's six ~-$1,0xx-1,4xx events are N
 //    same-direction ONE-leg baskets drowning together (3x correlated exposure to one move),
 //    and BOTH staged-floor variants failed there (per-basket inert; book-level cut realized
@@ -161,8 +158,8 @@ input double StagedFloorPortfolioPct = 8.0;    // ...at TOTAL float <= -this% of
 //    instead of cutting one: block a NEW basket in direction D while the existing D-direction
 //    legs float <= -SameDirGateLossPct% of balance. Gate-respecting (no forced realizations,
 //    winners untouched, recovery adds inside existing baskets unaffected). Default OFF.
-input bool UseSameDirBasketGate  = false;    // block new same-direction baskets while that side is deep
-input double SameDirGateLossPct    = 2.0;      // ...existing same-dir float <= -this% of balance blocks
+const bool UseSameDirBasketGate  = false;    // block new same-direction baskets while that side is deep  // CELL-LOCKED
+const double SameDirGateLossPct    = 2.0;      // ...existing same-dir float <= -this% of balance blocks  // CELL-LOCKED
 //--- SAME-DIRECTION SIZE TAPER (2026-07-12, S22): the GATE version above is RF-negative on
 //    oil (PEP A/B @2%: blocked 22% of 89%-win flow to save 21% DD$ -> RF 3.23->2.98). Per
 //    [[rigor-drives-sizing-not-gating]]: don't BLOCK the pile-in entry -- SHRINK it. A new
@@ -172,8 +169,8 @@ input double SameDirGateLossPct    = 2.0;      // ...existing same-dir float <= 
 //    INITIAL entry only, same semantics as the sizing table (grid legs stay base size --
 //    the observed oil tail anatomy is ONE-leg baskets, so the initial entry IS the exposure).
 //    Default OFF.
-input bool UseSameDirTaper       = false;    // taper new same-direction basket SIZE while that side is losing
-input double SameDirTaperMult      = 0.5;      // lot mult per existing same-dir basket (0.5 -> 2nd=half, 3rd=quarter)
+const bool UseSameDirTaper       = false;    // taper new same-direction basket SIZE while that side is losing  // CELL-LOCKED
+const double SameDirTaperMult      = 0.5;      // lot mult per existing same-dir basket (0.5 -> 2nd=half, 3rd=quarter)  // CELL-LOCKED
 //--- ALLOW OPPOSITE WHEN DEEP (2026-07-12, S23; queued Session 24): the fib C recovery-hedge
 //    anatomy, GridStat-shaped. Shadow-DB evidence on oil's six drowning events: Apr-May buy
 //    drowns had ZERO sell signals passing (lagging D1-50 stayed bullish through the 115->69
@@ -185,8 +182,8 @@ input double SameDirTaperMult      = 0.5;      // lot mult per existing same-dir
 //    MaxConcurrentBaskets. Still requires Goldminer + ADX/angle + session + stats/sizing
 //    gates (UNBLOCKS quality trades; never forces rejected ones -- the failed gold ride's
 //    defect). The rescue basket is a normal basket: own +$ escape, own floor. Default OFF.
-input bool AllowOppositeWhenDeep = false;    // unblock opposite-direction baskets while the book is deep
-input double OppositeWhenDeepPct   = 5.0;      // ...book float <= -this% of balance arms the unblock
+const bool AllowOppositeWhenDeep = false;    // unblock opposite-direction baskets while the book is deep  // CELL-LOCKED
+const double OppositeWhenDeepPct   = 5.0;      // ...book float <= -this% of balance arms the unblock  // CELL-LOCKED
 //    S24 completes fib C's EXIT choreography (S23 A/B: every drowning cluster shrank + DD$
 //    -28%, but net -32% because the rescue basket was left to fend for itself -- it won
 //    during the continuation then bled its gains back on the bounce while the losers
@@ -194,27 +191,27 @@ input double OppositeWhenDeepPct   = 5.0;      // ...book float <= -this% of bal
 //    open: (a) the LOSING side stops grid-adding (stop feeding the loser), (b) the WHOLE
 //    book (losers + rescue) closes together at +RescueBookTargetUSD (fib C's
 //    RecoveryTargetUSD). 0 = disabled (S23 behaviour).
-input double RescueBookTargetUSD   = 50.0;     // close the whole book at +this while rescued (0 = off)
+const double RescueBookTargetUSD   = 50.0;     // close the whole book at +this while rescued (0 = off)  // CELL-LOCKED
 //    S25 adds fib C's THIRD ingredient -- GROW the winning side. S24 A/B showed one rescue
 //    basket (~1/3 of the losing exposure) cannot overtake 2-3 drowning baskets, so the book
 //    never reaches the exit target before the floors fire. fib C rode EVERY winning-side
 //    signal until the book recovered. RescueMaxBaskets grants up to N rescue slots beyond
 //    MaxConcurrentBaskets while the book stays deep; each entry still needs its own
 //    Goldminer signal + quality gates. 1 = S23/S24 behaviour.
-input int RescueMaxBaskets      = 1;        // rescue slots beyond MaxConcurrentBaskets (fib C ramp: 2-3)
+const int RescueMaxBaskets      = 1;        // rescue slots beyond MaxConcurrentBaskets (fib C ramp: 2-3)  // CELL-LOCKED
 //--- equity-DD reducer (default OFF = locked config unchanged): close a LOSING basket when D1 trend flips AGAINST it
 //    (the regime change that turns a recoverable dip into a one-way bleed) -> caps the tail before the -20% floor,
 //    lowering intraday equity DD so the proven engine can be sized bigger. Validate every-tick vs the $7,908 baseline.
-const bool UseRegimeBasketExit   = false;  // LOCKED (was input)
+const bool UseRegimeBasketExit   = false;  // CELL-LOCKED
 //--- Break-even SL + grid guards
-const bool UseBreakEvenSL        = true;  // LOCKED (was input)
-const double BreakEvenTriggerR     = 0.7;  // LOCKED (was input)
-const double MaxBasketLotsTotal     = 0.30;  // LOCKED (was input)
-const bool SkipGridAfterSL       = true;  // LOCKED (was input)
-const int SkipGridAfterSLHours  = 4;  // LOCKED (was input)
+const bool UseBreakEvenSL        = true;  // CELL-LOCKED
+const double BreakEvenTriggerR     = 0.7;  // CELL-LOCKED
+const double MaxBasketLotsTotal     = 0.30;  // CELL-LOCKED
+const bool SkipGridAfterSL       = true;  // CELL-LOCKED
+const int SkipGridAfterSLHours  = 4;  // CELL-LOCKED
 //--- Misc
-const string CommentText           = "GridStat";  // LOCKED (was input)
-const int MagicSeed             = 0;       // 0 = auto-hash from symbol+period (matches MT4 scheme)  // LOCKED (was input)
+const string CommentText           = "GridStat";  // CELL-LOCKED
+const int MagicSeed             = 0;       // 0 = auto-hash from symbol+period (matches MT4 scheme)  // CELL-LOCKED
 
 //--- Globals
 double   point;
@@ -256,13 +253,7 @@ int      g_rescueDir = -1;      // AllowOppositeWhenDeep: direction of the open 
 int OnInit()
 {
 
-   // ---- LOCKED-EA GUARD (generated by make_locked_eas.py; do NOT edit this file by hand)
-   if(_Symbol != "SILVER" && _Symbol != "XAGUSD")
-   {
-      Print("LOCKED SILVER EA attached to WRONG symbol: ", _Symbol, " (accepts: SILVER/XAGUSD). ABORTING.");
-      return(INIT_FAILED);
-   }
-   Print("LOCKED SILVER EA -- all inputs hard-coded (generated 2026-07-12); only StagedFloor levers visible");
+   Print("GRIDSTAT TEST CELL GOLD CAP1 -- zero-input; deltas vs SF12 lock: MaxCompoundScale=1");
    point = (_Digits == 3 || _Digits == 5) ? _Point * 10 : _Point;
    hMA      = iMA(_Symbol, PERIOD_CURRENT, MA_Period, 0, MODE_EMA, PRICE_CLOSE);
    hADX     = iADX(_Symbol, PERIOD_CURRENT, ADX_Period);

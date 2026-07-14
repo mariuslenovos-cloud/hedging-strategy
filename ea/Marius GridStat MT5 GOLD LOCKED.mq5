@@ -20,7 +20,7 @@
 #property copyright "Marius"
 #property version   "1.00"
 
-#define EA_BUILD_VERSION "MT5-2026-07-12-S25-GOLD-SF12-LOCKED"
+#define EA_BUILD_VERSION "MT5-2026-07-12-S26-GOLD-SF12-LOCKED"
 #define MAX_PENDING 5000
 
 #include <Trade/Trade.mqh>
@@ -88,6 +88,13 @@ const double MaxSizeMult           = 2.0;  // LOCKED (was input)
 const double LotSize               = 0.02;  // LOCKED (was input)
 const bool UseCompounding        = true;  // LOCKED (was input)
 const double CompoundingBase       = 3000.0;  // LOCKED (was input)
+//--- COMPOUNDING CAP (2026-07-14, S26): the fib C Session-20 lesson transplanted.
+//    C1/C2 capital cells: uncapped compounding re-inflates risk faster than capital
+//    protects ($5k start -> eqDD 36.9%, $10k -> every event at 3x lots, gross give-back
+//    $8k of $13k). fib C's frontier: capping the COMPOUNDING multiplier (not recovery
+//    levers) curbs the grown-account give-back -- MaxCompoundScale=3 dominated.
+//    0 = uncapped (original behaviour, locked configs unchanged).
+const int MaxCompoundScale      = 0;        // cap floor(balance/CompoundingBase); 0 = uncapped  // LOCKED (was input)
 //--- Grid-ladder shaping (Session 23, ported from MT4 build S): cap the fib multiplier of grid legs.
 //    The fib ladder 1,1,2,3,5 is a martingale putting the BIGGEST lots at the WORST prices -- the deep
 //    legs carried 40%+ of every observed floor loss (MT4 A/B: MaxFibMult=1 -> zero basket stops, net +86%,
@@ -298,7 +305,8 @@ int OnInit()
             " UseEntrySL=", UseEntrySL, " UseRiskNormalizedLots=", UseRiskNormalizedLots);
       Print("CONFIG | UseOverextensionFilter=", UseOverextensionFilter,
             " OverextATRMult=", DoubleToString(OverextATRMult,2));
-      Print("CONFIG | MaxFibMult=", MaxFibMult, " (0=fib ladder, 1=flat legs, 2=capped)");
+      Print("CONFIG | MaxFibMult=", MaxFibMult, " (0=fib ladder, 1=flat legs, 2=capped)",
+            " MaxCompoundScale=", MaxCompoundScale, " (0=uncapped)");
       Print("CONFIG | UseStagedFloor=", UseStagedFloor,
             " StagedFloorPct=", DoubleToString(StagedFloorPct,1),
             "% (worst-leg cut; floor=", DoubleToString(BasketMaxLossPct,1), "%)");
@@ -865,7 +873,9 @@ double LookupSizing(string setupKey)
 double LotScale()
 {
    if(!UseCompounding || CompoundingBase <= 0) return 1.0;
-   return MathMax(1.0, MathFloor(Bal_() / CompoundingBase));
+   double sc = MathMax(1.0, MathFloor(Bal_() / CompoundingBase));
+   if(MaxCompoundScale > 0 && sc > MaxCompoundScale) sc = MaxCompoundScale;   // fib C cap (S26)
+   return sc;
 }
 double CalculateLot(int gridLevel)
 {
