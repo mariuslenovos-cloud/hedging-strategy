@@ -41,6 +41,11 @@ TERMINALS = {
                 "me": r"C:\Program Files\XM Global MT5\MetaEditor64.exe"},
     "PEP-MT5": {"experts": TERMDATA + r"\73B7A2420D6397DFF9014A20F1201F97\MQL5\Experts",
                 "me": r"C:\Program Files\Pepperstone MetaTrader 5\MetaEditor64.exe"},
+    # PEP-MT5 above = PRODUCTION (live 51511633 since 2026-07-14).
+    # PEP-STAGE below = STAGING: 2nd Pepperstone install ("C:\MT5 Pepperstone
+    # Instance 2"), demo 61552687, own data folder C54C4DDE... (Common\Files shared).
+    "PEP-STAGE": {"experts": TERMDATA + r"\C54C4DDE98E7B1FB905AFE04A9333631\MQL5\Experts",
+                  "me": r"C:\MT5 Pepperstone Instance 2\MetaEditor64.exe"},
     "XM-MT4":  {"experts": TERMDATA + r"\98A82F92176B73A2100FCD1F8ABD7255\MQL4\Experts\Adapted",
                 "me": r"C:\Program Files (x86)\XM Global MT4\metaeditor.exe"},
     "PEP-MT4": {"experts": TERMDATA + r"\3294B546D50FEEDA6BF3CFC7CF858DB7\MQL4\Experts",
@@ -275,10 +280,11 @@ def main():
     results = []
 
     # --- job 1: sync MT5 master -> PEP-MT5 (research parity) + compile there
-    pep_master = os.path.join(TERMINALS["PEP-MT5"]["experts"], "Marius GridStat MT5 v1.0.mq5")
-    io.open(pep_master, "w", encoding="utf-8").write(read_src(MASTER_MT5))
-    results.append(("PEP-MT5", "Marius GridStat MT5 v1.0.mq5 (master sync)",
-                    compile_one(TERMINALS["PEP-MT5"]["me"], pep_master)))
+    for _t in ("PEP-MT5", "PEP-STAGE"):
+      pep_master = os.path.join(TERMINALS[_t]["experts"], "Marius GridStat MT5 v1.0.mq5")
+      io.open(pep_master, "w", encoding="utf-8").write(read_src(MASTER_MT5))
+      results.append((_t, "Marius GridStat MT5 v1.0.mq5 (master sync)",
+                      compile_one(TERMINALS[_t]["me"], pep_master)))
 
     # --- job 2: MT5 locked EAs -> XM-MT5 + PEP-MT5
     mt5_master = read_src(MASTER_MT5)
@@ -286,7 +292,7 @@ def main():
         fname = f"Marius GridStat MT5 {tag} LOCKED.mq5"
         body = transform(mt5_master, tag, cfg, cfg.get("keep", KEEP_MT5),
                          f"MT5-{STAMP}-{BASE_MT5}-{tag}{cfg.get('buildsuffix','')}-LOCKED")
-        for term in ("XM-MT5", "PEP-MT5"):
+        for term in ("XM-MT5", "PEP-MT5", "PEP-STAGE"):
             path = os.path.join(TERMINALS[term]["experts"], fname)
             io.open(path, "w", encoding="utf-8").write(body)
             results.append((term, fname, compile_one(TERMINALS[term]["me"], path)))
@@ -328,7 +334,7 @@ def main():
     }
     fibc_body = transform(read_src(MASTER_FIBC), "FIBC", fibc_cfg, {"UseEquityLog"},
                           "FIBC-2026-07-13-XC4015-LOCKED")
-    for term in ("XM-MT5", "PEP-MT5"):
+    for term in ("XM-MT5", "PEP-MT5", "PEP-STAGE"):
         fpath = os.path.join(TERMINALS[term]["experts"], "Marius Hedger fib C LOCKED.mq5")
         io.open(fpath, "w", encoding="utf-8").write(fibc_body)
         results.append((term, "Marius Hedger fib C LOCKED.mq5", compile_one(TERMINALS[term]["me"], fpath)))
