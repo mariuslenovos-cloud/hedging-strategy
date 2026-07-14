@@ -64,6 +64,14 @@ const double BuySellProfitThresholdInCurrency = 0; // >0 overrides to a $ thresh
 //=== RISK-SAFE levers (DEFAULT OFF -> base == live; we A/B these on) ===
 const bool UseBasketStop        = true;  // catastrophe floor: close ALL if book float <= -BasketMaxLossPct% balance  // CELL-LOCKED
 const double BasketMaxLossPct     = 20.0;  // CELL-LOCKED
+//--- build L (2026-07-14): fib C's $10k autopsy = ONE deep book realized -$3,516 AT the 20%
+//    floor of the grown balance (Apr-14, 11 legs) = gold's exact pre-SF12 anatomy. Two levers:
+const bool UseStagedFloor       = false; // gold SF12 port: book <= -StagedFloorPct% -> close the WORST leg (once/bar) BEFORE the floor  // CELL-LOCKED
+const double StagedFloorPct       = 12.0;  // CELL-LOCKED
+const double ScaleAnchorBalance   = 0;     // cold-start protection: >0 -> compounding scale counts only balance ABOVE this  // CELL-LOCKED
+                                           //   (a cold $10k deposit trades like a fresh $3k until it has EARNED its scale;
+                                           //   fixes the sequencing disease WITHOUT breaking fib C's lot/threshold proportions
+                                           //   -- the mistake a plain tighter cap makes: CAP2@10k = RF 0.58, 11-leg clusters)
 const bool UseDailyTrendFilter  = false;  // only enter WITH the D1 trend (cuts counter-trend tax)  // CELL-LOCKED
 const int DailyMA_Period       = 50;  // CELL-LOCKED
 const bool UseImbalanceLock     = true;  // stop adding to a side that outnumbers the other by >= ImbalanceThreshold AND is in loss  // CELL-LOCKED
@@ -118,6 +126,7 @@ const int MagicSeed            = 0;  // CELL-LOCKED
 
 double   point;
 long     MagicNumber=0;
+datetime g_lastStageBar=0;   // staged floor (build L): one worst-leg cut per bar
 datetime lastBarTime=0;
 int      tradesThisBar=0;
 bool     g_recovering=false;
@@ -154,6 +163,8 @@ int OnInit()
    Print("CONFIG | grisk=",grisk," Fib=",UseFibonacci,"/MaxFibMult=",MaxFibMult," Compound=",UseCompounding,
          " MaxSame=",MaxSameTrades," Trail=",UseBasketTrail,"/",DoubleToString(MinFloatToActivate,0),
          "/",DoubleToString(BasketTrailAmount,0)," QuickHarvest=",UseBuySellProfitThreshold);
+   Print("CONFIG | StagedFloor=",UseStagedFloor,"/",DoubleToString(StagedFloorPct,1),
+         "% ScaleAnchorBalance=",DoubleToString(ScaleAnchorBalance,0)," (build L levers)");
    Print("CONFIG | SAFETY: BasketStop=",UseBasketStop,"/",DoubleToString(BasketMaxLossPct,0),
          "% D1filter=",UseDailyTrendFilter," ImbalanceLock=",UseImbalanceLock,"/",ImbalanceThreshold,
          " MaxLots=",UseMaxBasketLots,"/",DoubleToString(MaxBasketLotsTotal,2));
@@ -274,12 +285,16 @@ double SideLots(int dir)  // sum of OPEN lots on one side (for break-even recove
 double BookFloat(){ return SideProfit(POSITION_TYPE_BUY)+SideProfit(POSITION_TYPE_SELL); }
 double TotalOpenLots(){ double l=0; for(int i=PositionsTotal()-1;i>=0;i--){ ulong t=PositionGetTicket(i); if(t==0||!PositionSelectByTicket(t))continue; if(PositionGetInteger(POSITION_MAGIC)!=MagicNumber||PositionGetString(POSITION_SYMBOL)!=_Symbol)continue; l+=PositionGetDouble(POSITION_VOLUME); } return l; }
 
-double LotScaleInt(){ if(!UseCompounding||CompoundingBase<=0) return 1.0; double sc=MathFloor(AccountInfoDouble(ACCOUNT_BALANCE)/CompoundingBase); if(MaxCompoundScale>0) sc=MathMin(sc,(double)MaxCompoundScale); return MathMax(1.0,sc); }
+double ScaleBal(){ double b=AccountInfoDouble(ACCOUNT_BALANCE);
+   // cold-start anchor (build L): only EARNED balance above the anchor drives the scale
+   if(ScaleAnchorBalance>0) b = CompoundingBase + MathMax(0.0, b - ScaleAnchorBalance);
+   return b; }
+double LotScaleInt(){ if(!UseCompounding||CompoundingBase<=0) return 1.0; double sc=MathFloor(ScaleBal()/CompoundingBase); if(MaxCompoundScale>0) sc=MathMin(sc,(double)MaxCompoundScale); return MathMax(1.0,sc); }
 double CalculateLot(int dir)
 {
    double baseLot=LotSize;
    if(UseCompounding && CompoundingBase>0){
-      double mult=AccountInfoDouble(ACCOUNT_BALANCE)/CompoundingBase;
+      double mult=ScaleBal()/CompoundingBase;
       if(MaxCompoundScale>0) mult=MathMin(mult,(double)MaxCompoundScale);
       double scaled=MathFloor(mult*LotSize/0.01)*0.01;
       baseLot=MathMax(LotSize,scaled);
@@ -373,6 +388,29 @@ void CheckBasketTrail(bool recovering=false)
       if(tot <= -floorPct/100.0*AccountInfoDouble(ACCOUNT_BALANCE)){
          Print("BASKET STOP fired float=",DoubleToString(tot,2)," floorPct=",DoubleToString(floorPct,1)); CloseAll(); peakBasketFloat=0;
          g_recovering=false; g_recoverWinDir=-1; g_recoverArmed=false; g_recoverPeak=0; g_recoverDeepest=0; return;
+      }
+   }
+   // ---- STAGED FLOOR (build L, gold SF12 port): book deep -> cut the single WORST leg
+   // BEFORE the -20% floor realizes the whole ladder (the $10k Apr-14 -$3,516 anatomy).
+   // Runs during recovery too (lightening the loser complements the hedge). Once per bar.
+   if(UseStagedFloor && iTime(_Symbol,PERIOD_CURRENT,0)!=g_lastStageBar &&
+      tot <= -StagedFloorPct/100.0*AccountInfoDouble(ACCOUNT_BALANCE)){
+      ulong worst=0; double wp=0;
+      for(int si=PositionsTotal()-1; si>=0; si--){
+         ulong tk=PositionGetTicket(si);
+         if(tk==0 || !PositionSelectByTicket(tk)) continue;
+         if(PositionGetInteger(POSITION_MAGIC)!=MagicNumber) continue;
+         if(PositionGetString(POSITION_SYMBOL)!=_Symbol) continue;
+         double p=PositionGetDouble(POSITION_PROFIT)+PositionGetDouble(POSITION_SWAP);
+         if(worst==0 || p<wp){ worst=tk; wp=p; }
+      }
+      if(worst>0){
+         if(trade.PositionClose(worst))
+            Print("STAGED FLOOR: closed worst leg #",worst," pnl=",DoubleToString(wp,2),
+                  " (book was ",DoubleToString(tot,2),")");
+         else Print("STAGED FLOOR: close failed #",worst," err=",GetLastError());
+         g_lastStageBar=iTime(_Symbol,PERIOD_CURRENT,0);
+         return;   // re-evaluate the lightened book next tick
       }
    }
    if(recovering) return;   // recovery owns the profit-side close; only the floor above runs while rescuing

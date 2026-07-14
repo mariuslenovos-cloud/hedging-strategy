@@ -67,6 +67,14 @@ CELLS = {
     # = the LOCKED XC config (trail 40/15) with only the cap changed.
     "CAP2": {"MinFloatToActivate": "40.0", "MaxCompoundScale": "2"},
     "CAP1": {"MinFloatToActivate": "40.0", "MaxCompoundScale": "1"},
+    # round 6 (2026-07-14, build L): the $10k resolution levers -- staged floor
+    # (gold SF12 port; the Apr-14 -$3,516 full-ladder floor realization is gold's
+    # exact anatomy) + scale anchor (cold-start protection that PRESERVES fib C's
+    # lot/threshold proportions, unlike the cap). All on the locked XC exit.
+    "SF":   {"MinFloatToActivate": "40.0", "UseStagedFloor": "true"},
+    "ANCH": {"MinFloatToActivate": "40.0", "ScaleAnchorBalance": "10000"},
+    "SFA":  {"MinFloatToActivate": "40.0", "UseStagedFloor": "true",
+             "ScaleAnchorBalance": "10000"},
 }
 INPUT_RE = re.compile(r"^input\s+(\w+)\s+(\w+)(\s*)=\s*([^;]+);(.*)$")
 

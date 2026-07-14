@@ -1,4 +1,4 @@
-//| GENERATED TEST CELL G4X -- do not edit; regen via fibc_make_cells.py |
+//| GENERATED TEST CELL SF -- do not edit; regen via fibc_make_cells.py |
 //+------------------------------------------------------------------+
 //|  Marius Hedger M5 fib C  --  MT5 PORT (v1.0)                      |
 //|  Faithful MT5 equivalent of the LIVE MT4 fib C that made ~$1,400  |
@@ -21,7 +21,7 @@
 #include <Trade/Trade.mqh>
 CTrade trade;
 
-#define BUILD "FIBC-CELL-G4X-2026-07-13"
+#define BUILD "FIBC-CELL-SF-2026-07-13"
 
 //--- sizing
 const double LotSize            = 0.02;  // CELL-LOCKED
@@ -37,7 +37,7 @@ const int RecoverySizeMode   = 1;        // 0 = Fibonacci (default, UNCHANGED). 
 const double RecoveryRR         = 3.0;      // mode 1 R:R (higher = gentler leg growth)  // CELL-LOCKED
 const double RecoveryCostBuffer = 1.1;      // mode 1: size up x this to clear spread+commission+swap (1.1 = +10%)  // CELL-LOCKED
 //--- entry signal (Goldminer embedded + trend gate)
-const int grisk              = 4;        // fib C value (drives auto period/bands)  // CELL-LOCKED
+const int grisk              = 7;        // fib C value (drives auto period/bands)  // CELL-LOCKED
 const int GM_Period          = 0;        // 0 = auto (grisk*2+3)  // CELL-LOCKED
 const double GM_UpperBand        = 0;       // 0 = auto (grisk+67)  // CELL-LOCKED
 const double GM_LowerBand        = 0;       // 0 = auto (33-grisk)  // CELL-LOCKED
@@ -57,7 +57,7 @@ const int SessionEndHour       = 23;  // CELL-LOCKED
 //--- exits
 const bool UseBasketTrail       = true;  // CELL-LOCKED
 const double MinFloatToActivate   = 40.0;  // CELL-LOCKED
-const double BasketTrailAmount     = 10.0;  // CELL-LOCKED
+const double BasketTrailAmount     = 15.0;  // CELL-LOCKED
 const bool UseBuySellProfitThreshold = true;  // same-dir quick harvest  // CELL-LOCKED
 const double BuySellProfitThreshold     = 50.0; // in POINTS*point (gold ~ $0.50) -- faithful to live  // CELL-LOCKED
 const double BuySellProfitThresholdInCurrency = 0; // >0 overrides to a $ threshold  // CELL-LOCKED
@@ -66,7 +66,7 @@ const bool UseBasketStop        = true;  // catastrophe floor: close ALL if book
 const double BasketMaxLossPct     = 20.0;  // CELL-LOCKED
 //--- build L (2026-07-14): fib C's $10k autopsy = ONE deep book realized -$3,516 AT the 20%
 //    floor of the grown balance (Apr-14, 11 legs) = gold's exact pre-SF12 anatomy. Two levers:
-const bool UseStagedFloor       = false; // gold SF12 port: book <= -StagedFloorPct% -> close the WORST leg (once/bar) BEFORE the floor  // CELL-LOCKED
+const bool UseStagedFloor       = true; // gold SF12 port: book <= -StagedFloorPct% -> close the WORST leg (once/bar) BEFORE the floor  // CELL-LOCKED
 const double StagedFloorPct       = 12.0;  // CELL-LOCKED
 const double ScaleAnchorBalance   = 0;     // cold-start protection: >0 -> compounding scale counts only balance ABOVE this  // CELL-LOCKED
                                            //   (a cold $10k deposit trades like a fresh $3k until it has EARNED its scale;
@@ -143,7 +143,7 @@ int      gEqHandle=INVALID_HANDLE;
 int OnInit()
 {
 
-   Print("FIBC TEST CELL G4X -- zero-input build; deltas: grisk=4, MinFloatToActivate=40.0, BasketTrailAmount=10.0");
+   Print("FIBC TEST CELL SF -- zero-input build; deltas: MinFloatToActivate=40.0, UseStagedFloor=true");
    point = (_Digits==3 || _Digits==5) ? _Point*10 : _Point;
    hMA   = iMA(_Symbol, PERIOD_CURRENT, MA_Period, 0, MODE_EMA, PRICE_CLOSE);
    hADX  = iADX(_Symbol, PERIOD_CURRENT, ADX_Period);

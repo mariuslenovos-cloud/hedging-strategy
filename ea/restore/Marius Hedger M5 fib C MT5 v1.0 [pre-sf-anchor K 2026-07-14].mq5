@@ -1,4 +1,3 @@
-//| GENERATED TEST CELL G4X -- do not edit; regen via fibc_make_cells.py |
 //+------------------------------------------------------------------+
 //|  Marius Hedger M5 fib C  --  MT5 PORT (v1.0)                      |
 //|  Faithful MT5 equivalent of the LIVE MT4 fib C that made ~$1,400  |
@@ -21,112 +20,103 @@
 #include <Trade/Trade.mqh>
 CTrade trade;
 
-#define BUILD "FIBC-CELL-G4X-2026-07-13"
+#define BUILD "FIBC-MT5-2026-06-28-K"
 
 //--- sizing
-const double LotSize            = 0.02;  // CELL-LOCKED
-const bool UseFibonacci       = true;     // 1,1,2,3,5,8.. per direction (else martingale x LotMultiplier)  // CELL-LOCKED
-const int LotMultiplier      = 2;  // CELL-LOCKED
-const bool UseCompounding     = true;  // CELL-LOCKED
-const double CompoundingBase    = 3000.0;   // base lot scales with floor(balance/this)  // CELL-LOCKED
-const int MaxSameTrades      = 5;        // max ladder depth per direction  // CELL-LOCKED
-const int MaxFibMult         = 0;        // GENTLER LADDER: cap per-leg fib multiplier (0=uncapped 1,1,2,3,5,8..; e.g. 3 -> 1,1,2,3,3,3 = smaller deep legs = smaller floating basket = smaller floor loss, lower PF in chop. The DD dial that works regardless of where legs were placed.)  // CELL-LOCKED
-const int MaxCompoundScale   = 3;        // [curb-give-back] cap the compounding multiplier floor(bal/CompoundingBase). 0=uncapped (current). e.g. 3 = base lot never grows past 3x -> baskets stay SMALL relative to a grown account -> the recovery keeps the rescue headroom it has at $3k -> fewer/smaller floor-hits. Trade-off: less compounding upside.  // CELL-LOCKED
+input double LotSize            = 0.02;
+input bool   UseFibonacci       = true;     // 1,1,2,3,5,8.. per direction (else martingale x LotMultiplier)
+input int    LotMultiplier      = 2;
+input bool   UseCompounding     = true;
+input double CompoundingBase    = 3000.0;   // base lot scales with floor(balance/this)
+input int    MaxSameTrades      = 5;        // max ladder depth per direction
+input int    MaxFibMult         = 0;        // GENTLER LADDER: cap per-leg fib multiplier (0=uncapped 1,1,2,3,5,8..; e.g. 3 -> 1,1,2,3,3,3 = smaller deep legs = smaller floating basket = smaller floor loss, lower PF in chop. The DD dial that works regardless of where legs were placed.)
+input int    MaxCompoundScale   = 3;        // [curb-give-back] cap the compounding multiplier floor(bal/CompoundingBase). 0=uncapped (current). e.g. 3 = base lot never grows past 3x -> baskets stay SMALL relative to a grown account -> the recovery keeps the rescue headroom it has at $3k -> fewer/smaller floor-hits. Trade-off: less compounding upside.
 //--- RECOVERY SIZING MODE (zone-recovery "break-even guarantee" math vs Fibonacci). A/B lever.
-const int RecoverySizeMode   = 1;        // 0 = Fibonacci (default, UNCHANGED). 1 = BREAK-EVEN formula: each recovery leg = (RR+1)/RR x (opposite-side lots - same-side lots) x CostBuffer = the MINIMAL leg that makes the basket net-positive at the next favourable move, cost included. Leaner/more principled than Fibonacci -> smaller per-basket tail. (Derived from zone-recovery math; in a one-sided trend it floors to base = uniform lots.)  // CELL-LOCKED
-const double RecoveryRR         = 3.0;      // mode 1 R:R (higher = gentler leg growth)  // CELL-LOCKED
-const double RecoveryCostBuffer = 1.1;      // mode 1: size up x this to clear spread+commission+swap (1.1 = +10%)  // CELL-LOCKED
+input int    RecoverySizeMode   = 1;        // 0 = Fibonacci (default, UNCHANGED). 1 = BREAK-EVEN formula: each recovery leg = (RR+1)/RR x (opposite-side lots - same-side lots) x CostBuffer = the MINIMAL leg that makes the basket net-positive at the next favourable move, cost included. Leaner/more principled than Fibonacci -> smaller per-basket tail. (Derived from zone-recovery math; in a one-sided trend it floors to base = uniform lots.)
+input double RecoveryRR         = 3.0;      // mode 1 R:R (higher = gentler leg growth)
+input double RecoveryCostBuffer = 1.1;      // mode 1: size up x this to clear spread+commission+swap (1.1 = +10%)
 //--- entry signal (Goldminer embedded + trend gate)
-const int grisk              = 4;        // fib C value (drives auto period/bands)  // CELL-LOCKED
-const int GM_Period          = 0;        // 0 = auto (grisk*2+3)  // CELL-LOCKED
-const double GM_UpperBand        = 0;       // 0 = auto (grisk+67)  // CELL-LOCKED
-const double GM_LowerBand        = 0;       // 0 = auto (33-grisk)  // CELL-LOCKED
-const double GM_GapMult          = 2.0;  // CELL-LOCKED
-const int GM_GapMode          = 0;  // CELL-LOCKED
-const double GM_FastMult         = 4.6;  // CELL-LOCKED
-const int goldminershift      = 1;  // CELL-LOCKED
-const int MA_Period           = 20;  // CELL-LOCKED
-const double MA_Angle_Threshold  = 20.0;  // CELL-LOCKED
-const int ADX_Period          = 14;  // CELL-LOCKED
-const double ADX_Threshold       = 25.0;  // CELL-LOCKED
-const int tradesperbar        = 1;  // CELL-LOCKED
+input int    grisk              = 7;        // fib C value (drives auto period/bands)
+input int    GM_Period          = 0;        // 0 = auto (grisk*2+3)
+input double GM_UpperBand        = 0;       // 0 = auto (grisk+67)
+input double GM_LowerBand        = 0;       // 0 = auto (33-grisk)
+input double GM_GapMult          = 2.0;
+input int    GM_GapMode          = 0;
+input double GM_FastMult         = 4.6;
+input int    goldminershift      = 1;
+input int    MA_Period           = 20;
+input double MA_Angle_Threshold  = 20.0;
+input int    ADX_Period          = 14;
+input double ADX_Threshold       = 25.0;
+input int    tradesperbar        = 1;
 //--- session
-const bool UseSessionFilter    = true;  // CELL-LOCKED
-const int SessionStartHour     = 9;  // CELL-LOCKED
-const int SessionEndHour       = 23;  // CELL-LOCKED
+input bool   UseSessionFilter    = true;
+input int    SessionStartHour     = 9;
+input int    SessionEndHour       = 23;
 //--- exits
-const bool UseBasketTrail       = true;  // CELL-LOCKED
-const double MinFloatToActivate   = 40.0;  // CELL-LOCKED
-const double BasketTrailAmount     = 10.0;  // CELL-LOCKED
-const bool UseBuySellProfitThreshold = true;  // same-dir quick harvest  // CELL-LOCKED
-const double BuySellProfitThreshold     = 50.0; // in POINTS*point (gold ~ $0.50) -- faithful to live  // CELL-LOCKED
-const double BuySellProfitThresholdInCurrency = 0; // >0 overrides to a $ threshold  // CELL-LOCKED
+input bool   UseBasketTrail       = true;
+input double MinFloatToActivate   = 80.0;
+input double BasketTrailAmount     = 15.0;
+input bool   UseBuySellProfitThreshold = true;  // same-dir quick harvest
+input double BuySellProfitThreshold     = 50.0; // in POINTS*point (gold ~ $0.50) -- faithful to live
+input double BuySellProfitThresholdInCurrency = 0; // >0 overrides to a $ threshold
 //=== RISK-SAFE levers (DEFAULT OFF -> base == live; we A/B these on) ===
-const bool UseBasketStop        = true;  // catastrophe floor: close ALL if book float <= -BasketMaxLossPct% balance  // CELL-LOCKED
-const double BasketMaxLossPct     = 20.0;  // CELL-LOCKED
-//--- build L (2026-07-14): fib C's $10k autopsy = ONE deep book realized -$3,516 AT the 20%
-//    floor of the grown balance (Apr-14, 11 legs) = gold's exact pre-SF12 anatomy. Two levers:
-const bool UseStagedFloor       = false; // gold SF12 port: book <= -StagedFloorPct% -> close the WORST leg (once/bar) BEFORE the floor  // CELL-LOCKED
-const double StagedFloorPct       = 12.0;  // CELL-LOCKED
-const double ScaleAnchorBalance   = 0;     // cold-start protection: >0 -> compounding scale counts only balance ABOVE this  // CELL-LOCKED
-                                           //   (a cold $10k deposit trades like a fresh $3k until it has EARNED its scale;
-                                           //   fixes the sequencing disease WITHOUT breaking fib C's lot/threshold proportions
-                                           //   -- the mistake a plain tighter cap makes: CAP2@10k = RF 0.58, 11-leg clusters)
-const bool UseDailyTrendFilter  = true;  // only enter WITH the D1 trend (cuts counter-trend tax)  // CELL-LOCKED
-const int DailyMA_Period       = 50;  // CELL-LOCKED
-const bool UseImbalanceLock     = true;  // stop adding to a side that outnumbers the other by >= ImbalanceThreshold AND is in loss  // CELL-LOCKED
-const int ImbalanceThreshold   = 2;  // CELL-LOCKED
-const bool UseMaxBasketLots     = false;  // cap TOTAL open lots -> bounds the Fibonacci martingale = caps the max basket loss (the DD tail)  // CELL-LOCKED
-const double MaxBasketLotsTotal    = 0.30;  // CELL-LOCKED
+input bool   UseBasketStop        = true;  // catastrophe floor: close ALL if book float <= -BasketMaxLossPct% balance
+input double BasketMaxLossPct     = 20.0;
+input bool   UseDailyTrendFilter  = true;  // only enter WITH the D1 trend (cuts counter-trend tax)
+input int    DailyMA_Period       = 50;
+input bool   UseImbalanceLock     = true;  // stop adding to a side that outnumbers the other by >= ImbalanceThreshold AND is in loss
+input int    ImbalanceThreshold   = 2;
+input bool   UseMaxBasketLots     = false;  // cap TOTAL open lots -> bounds the Fibonacci martingale = caps the max basket loss (the DD tail)
+input double MaxBasketLotsTotal    = 0.30;
 //--- VOL-REGIME filter (AFML Ch.17; the proven MT4 DD-cut: (a)+(c) cut fib C DD 59%->38%, session 19k). DEFAULT OFF.
-const bool UseVolRegimeFilter   = true;  // master switch  // CELL-LOCKED
-const int VolATRFastPeriod     = 5;      // fast ATR(D1) = current regime  // CELL-LOCKED
-const int VolATRSlowPeriod     = 60;     // slow ATR(D1) = baseline regime  // CELL-LOCKED
-const double VolRegimeMult         = 2.5;   // HOT when ATR_fast/ATR_slow >= this  // CELL-LOCKED
-const bool VolBlockAllEntries    = true;  // (a) HOT: block ALL new entries (sit out the storm)  // CELL-LOCKED
-const bool VolBlockStacking      = false; // (b) HOT: block only ADDS (allow 1st entry/dir)  // CELL-LOCKED
-const bool VolScaledFloor        = false;  // (c) HOT: WIDEN the catastrophe floor so baskets ride to recovery  // CELL-LOCKED
-const double VolFloorMaxMult        = 2.0;  // (c) cap: floor% widens up to this x BasketMaxLossPct (30%->60%)  // CELL-LOCKED
+input bool   UseVolRegimeFilter   = true;  // master switch
+input int    VolATRFastPeriod     = 5;      // fast ATR(D1) = current regime
+input int    VolATRSlowPeriod     = 60;     // slow ATR(D1) = baseline regime
+input double VolRegimeMult         = 2.5;   // HOT when ATR_fast/ATR_slow >= this
+input bool   VolBlockAllEntries    = true;  // (a) HOT: block ALL new entries (sit out the storm)
+input bool   VolBlockStacking      = false; // (b) HOT: block only ADDS (allow 1st entry/dir)
+input bool   VolScaledFloor        = false;  // (c) HOT: WIDEN the catastrophe floor so baskets ride to recovery
+input double VolFloorMaxMult        = 2.0;  // (c) cap: floor% widens up to this x BasketMaxLossPct (30%->60%)
 //--- OVEREXTENSION filter (AFML Ch.17; the DIRECTIONAL-DRIFT analog of the vol filter -- catches the slow-drift
 //    structural break the vol-EXPANSION filter MISSES. gridregime.py (19o): dist=|close-D1EMA|/ATR(D1,60) corr
 //    -0.61 with gold deep-MAE. Stops growing the fib ladder into the extreme = caps the deep-leg tail WITHOUT
 //    cutting recoverable baskets. DEFAULT OFF -> base unchanged.)
-const bool UseOverextFilter     = false;   // CELL-LOCKED
-const double OverextATRMult        = 4.5;   // HOT when |close - D1EMA(DailyMA_Period)| / ATR(D1,VolATRSlowPeriod) >= this (gold ~90th pctile)  // CELL-LOCKED
-const bool OverextBlockAdds      = true;  // true: block only ADDS when stretched (cap the deep fib legs, keep base flow); false: block ALL entries  // CELL-LOCKED
+input bool   UseOverextFilter     = false; 
+input double OverextATRMult        = 4.5;   // HOT when |close - D1EMA(DailyMA_Period)| / ATR(D1,VolATRSlowPeriod) >= this (gold ~90th pctile)
+input bool   OverextBlockAdds      = true;  // true: block only ADDS when stretched (cap the deep fib legs, keep base flow); false: block ALL entries
 //--- TWO-ENGINE LAB: per-bar floating-equity log (the harvester half of the harvester+trend pairing). DEFAULT OFF -> no files in live.
-const bool UseEquityLog         = false;          // research: write time,balance,equity per bar to EquityLogFile (Common\Files)  // CELL-LOCKED
-const string EquityLogFile        = "fibc_equity.csv";  // CELL-LOCKED
+input bool   UseEquityLog         = false;          // research: write time,balance,equity per bar to EquityLogFile (Common\Files)
+input string EquityLogFile        = "fibc_equity.csv";
 //--- FIRST-ENTRY PROBABILITY GATE (the GridStat selectivity = source of its 20% DD vs fib C's 50%).
 //    Only START a basket (first leg on a side) when the entry fingerprint DIR|SESSION|ATR-regime has
 //    historical win-rate >= threshold in the stats DB. Recovery legs (adds) BYPASS it. DEFAULT OFF.
 //    Attacks the tail AT SOURCE (don't start bad baskets) -> preserves the recovery edge (vs floor-cuts).
-const bool UseFirstEntryGate    = true;  // CELL-LOCKED
-const string FirstGateStatsCSV    = "gridstat_setups_gold.csv";  // GridStat shadow DB (Common\Files); same fingerprint  // CELL-LOCKED
-const double FirstGateMinWinRate  = 0.55;   // win-rate threshold for BUY starts  // CELL-LOCKED
-const double FirstGateSellMinWinRate = 0.65; // SELL-only threshold (0 = use FirstGateMinWinRate). Gold longs >> shorts -> set this higher (e.g. 0.65) to cut weak shorts.  // CELL-LOCKED
-const int FirstGateMinSamples  = 10;  // CELL-LOCKED
+input bool   UseFirstEntryGate    = true;
+input string FirstGateStatsCSV    = "gridstat_setups_gold.csv";  // GridStat shadow DB (Common\Files); same fingerprint
+input double FirstGateMinWinRate  =    0.55;   // win-rate threshold for BUY starts
+input double FirstGateSellMinWinRate = 0.65; // SELL-only threshold (0 = use FirstGateMinWinRate). Gold longs >> shorts -> set this higher (e.g. 0.65) to cut weak shorts.
+input int    FirstGateMinSamples  = 10;
 //--- RECOVERY HEDGE (the validated MT4 win, session 19v): when the book is deep underwater,
 //    STOP feeding the loser and RIDE the winning (trend) side on every Goldminer signal until
 //    the whole book recovers to +target. Averaging-in recovers mean-reversion; riding the winner
 //    recovers sustained trends (the deep-basket cause). Overrides D1/session/imbalance/MaxSameTrades
 //    for the WINNING side only. Catastrophe floor stays the backstop. DEFAULT OFF -> base unchanged.
-const bool UseRecoveryHedge     = true;  // CELL-LOCKED
-const double HedgeTriggerLoss     = 0.0;  // arm when book float <= -this ($)  // CELL-LOCKED
-const double HedgeTriggerPctBal   = 3.0;    // >0: arm when book float <= -this%% of balance (overrides HedgeTriggerLoss; deposit-portable). Validated 3.  // CELL-LOCKED
-const double RecoveryTargetUSD    = 40.0;   // close the WHOLE book once it recovers to +this ($)  // CELL-LOCKED
-const bool UseRecoveryTrail     = true;  // [opt1] once recovered to +target, TRAIL the winner instead of flat-closing (+4%% on gold)  // CELL-LOCKED
-const double RecoveryTrailGiveback = 20.0;  // give-back ($) from the recovery peak that closes (locks >= effective target)  // CELL-LOCKED
-const double RecoveryTargetPct    = 10.0;    // [opt2] >0: scale target to this %% of the DEEPEST loss rescued (max w/ RecoveryTargetUSD). +3%% on gold at 10.  // CELL-LOCKED
-const bool RecoveryRespectBreakFilters = false; // [curb] while rescuing, DON'T add a recovery leg when vol-regime HOT or price OVEREXTENDED (structural-break filters) -> stops piling into a stretched move about to whipsaw (the floor-hit cause). Needs UseVolRegimeFilter/UseOverextFilter on.  // CELL-LOCKED
-const bool RecoveryScaleByLots  = false; // [curb-size] scale the recovery $ levers (RecoveryTargetUSD/RecoveryTrailGiveback/HedgeTriggerLoss) by the compounding lotScale=floor(bal/CompoundingBase) so they TRACK lot size as the account grows (the basket-trail already does this). Fixes the floor-hits that appear only on grown accounts.  // CELL-LOCKED
+input bool   UseRecoveryHedge     = true;
+input double HedgeTriggerLoss     = 0.0;  // arm when book float <= -this ($)
+input double HedgeTriggerPctBal   = 3.0;    // >0: arm when book float <= -this%% of balance (overrides HedgeTriggerLoss; deposit-portable). Validated 3.
+input double RecoveryTargetUSD    = 40.0;   // close the WHOLE book once it recovers to +this ($)
+input bool   UseRecoveryTrail     = true;  // [opt1] once recovered to +target, TRAIL the winner instead of flat-closing (+4%% on gold)
+input double RecoveryTrailGiveback = 20.0;  // give-back ($) from the recovery peak that closes (locks >= effective target)
+input double RecoveryTargetPct    = 10.0;    // [opt2] >0: scale target to this %% of the DEEPEST loss rescued (max w/ RecoveryTargetUSD). +3%% on gold at 10.
+input bool   RecoveryRespectBreakFilters = false; // [curb] while rescuing, DON'T add a recovery leg when vol-regime HOT or price OVEREXTENDED (structural-break filters) -> stops piling into a stretched move about to whipsaw (the floor-hit cause). Needs UseVolRegimeFilter/UseOverextFilter on.
+input bool   RecoveryScaleByLots  = false; // [curb-size] scale the recovery $ levers (RecoveryTargetUSD/RecoveryTrailGiveback/HedgeTriggerLoss) by the compounding lotScale=floor(bal/CompoundingBase) so they TRACK lot size as the account grows (the basket-trail already does this). Fixes the floor-hits that appear only on grown accounts.
 //--- misc
-const string CommentText          = "FIB C";  // CELL-LOCKED
-const int MagicSeed            = 0;  // CELL-LOCKED
+input string CommentText          = "FIB C";
+input int    MagicSeed            = 0;
 
 double   point;
 long     MagicNumber=0;
-datetime g_lastStageBar=0;   // staged floor (build L): one worst-leg cut per bar
 datetime lastBarTime=0;
 int      tradesThisBar=0;
 bool     g_recovering=false;
@@ -142,8 +132,6 @@ int      gEqHandle=INVALID_HANDLE;
 //+------------------------------------------------------------------+
 int OnInit()
 {
-
-   Print("FIBC TEST CELL G4X -- zero-input build; deltas: grisk=4, MinFloatToActivate=40.0, BasketTrailAmount=10.0");
    point = (_Digits==3 || _Digits==5) ? _Point*10 : _Point;
    hMA   = iMA(_Symbol, PERIOD_CURRENT, MA_Period, 0, MODE_EMA, PRICE_CLOSE);
    hADX  = iADX(_Symbol, PERIOD_CURRENT, ADX_Period);
@@ -163,8 +151,6 @@ int OnInit()
    Print("CONFIG | grisk=",grisk," Fib=",UseFibonacci,"/MaxFibMult=",MaxFibMult," Compound=",UseCompounding,
          " MaxSame=",MaxSameTrades," Trail=",UseBasketTrail,"/",DoubleToString(MinFloatToActivate,0),
          "/",DoubleToString(BasketTrailAmount,0)," QuickHarvest=",UseBuySellProfitThreshold);
-   Print("CONFIG | StagedFloor=",UseStagedFloor,"/",DoubleToString(StagedFloorPct,1),
-         "% ScaleAnchorBalance=",DoubleToString(ScaleAnchorBalance,0)," (build L levers)");
    Print("CONFIG | SAFETY: BasketStop=",UseBasketStop,"/",DoubleToString(BasketMaxLossPct,0),
          "% D1filter=",UseDailyTrendFilter," ImbalanceLock=",UseImbalanceLock,"/",ImbalanceThreshold,
          " MaxLots=",UseMaxBasketLots,"/",DoubleToString(MaxBasketLotsTotal,2));
@@ -285,16 +271,12 @@ double SideLots(int dir)  // sum of OPEN lots on one side (for break-even recove
 double BookFloat(){ return SideProfit(POSITION_TYPE_BUY)+SideProfit(POSITION_TYPE_SELL); }
 double TotalOpenLots(){ double l=0; for(int i=PositionsTotal()-1;i>=0;i--){ ulong t=PositionGetTicket(i); if(t==0||!PositionSelectByTicket(t))continue; if(PositionGetInteger(POSITION_MAGIC)!=MagicNumber||PositionGetString(POSITION_SYMBOL)!=_Symbol)continue; l+=PositionGetDouble(POSITION_VOLUME); } return l; }
 
-double ScaleBal(){ double b=AccountInfoDouble(ACCOUNT_BALANCE);
-   // cold-start anchor (build L): only EARNED balance above the anchor drives the scale
-   if(ScaleAnchorBalance>0) b = CompoundingBase + MathMax(0.0, b - ScaleAnchorBalance);
-   return b; }
-double LotScaleInt(){ if(!UseCompounding||CompoundingBase<=0) return 1.0; double sc=MathFloor(ScaleBal()/CompoundingBase); if(MaxCompoundScale>0) sc=MathMin(sc,(double)MaxCompoundScale); return MathMax(1.0,sc); }
+double LotScaleInt(){ if(!UseCompounding||CompoundingBase<=0) return 1.0; double sc=MathFloor(AccountInfoDouble(ACCOUNT_BALANCE)/CompoundingBase); if(MaxCompoundScale>0) sc=MathMin(sc,(double)MaxCompoundScale); return MathMax(1.0,sc); }
 double CalculateLot(int dir)
 {
    double baseLot=LotSize;
    if(UseCompounding && CompoundingBase>0){
-      double mult=ScaleBal()/CompoundingBase;
+      double mult=AccountInfoDouble(ACCOUNT_BALANCE)/CompoundingBase;
       if(MaxCompoundScale>0) mult=MathMin(mult,(double)MaxCompoundScale);
       double scaled=MathFloor(mult*LotSize/0.01)*0.01;
       baseLot=MathMax(LotSize,scaled);
@@ -388,29 +370,6 @@ void CheckBasketTrail(bool recovering=false)
       if(tot <= -floorPct/100.0*AccountInfoDouble(ACCOUNT_BALANCE)){
          Print("BASKET STOP fired float=",DoubleToString(tot,2)," floorPct=",DoubleToString(floorPct,1)); CloseAll(); peakBasketFloat=0;
          g_recovering=false; g_recoverWinDir=-1; g_recoverArmed=false; g_recoverPeak=0; g_recoverDeepest=0; return;
-      }
-   }
-   // ---- STAGED FLOOR (build L, gold SF12 port): book deep -> cut the single WORST leg
-   // BEFORE the -20% floor realizes the whole ladder (the $10k Apr-14 -$3,516 anatomy).
-   // Runs during recovery too (lightening the loser complements the hedge). Once per bar.
-   if(UseStagedFloor && iTime(_Symbol,PERIOD_CURRENT,0)!=g_lastStageBar &&
-      tot <= -StagedFloorPct/100.0*AccountInfoDouble(ACCOUNT_BALANCE)){
-      ulong worst=0; double wp=0;
-      for(int si=PositionsTotal()-1; si>=0; si--){
-         ulong tk=PositionGetTicket(si);
-         if(tk==0 || !PositionSelectByTicket(tk)) continue;
-         if(PositionGetInteger(POSITION_MAGIC)!=MagicNumber) continue;
-         if(PositionGetString(POSITION_SYMBOL)!=_Symbol) continue;
-         double p=PositionGetDouble(POSITION_PROFIT)+PositionGetDouble(POSITION_SWAP);
-         if(worst==0 || p<wp){ worst=tk; wp=p; }
-      }
-      if(worst>0){
-         if(trade.PositionClose(worst))
-            Print("STAGED FLOOR: closed worst leg #",worst," pnl=",DoubleToString(wp,2),
-                  " (book was ",DoubleToString(tot,2),")");
-         else Print("STAGED FLOOR: close failed #",worst," err=",GetLastError());
-         g_lastStageBar=iTime(_Symbol,PERIOD_CURRENT,0);
-         return;   // re-evaluate the lightened book next tick
       }
    }
    if(recovering) return;   // recovery owns the profit-side close; only the floor above runs while rescuing
