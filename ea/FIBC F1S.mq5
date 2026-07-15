@@ -331,7 +331,7 @@ void CloseAll(){ CloseSide(POSITION_TYPE_BUY); CloseSide(POSITION_TYPE_SELL); }
 void CheckRecoveryHedge()
 {
    if(!UseRecoveryHedge){ g_recovering=false; return; }
-   double bal=AccountInfoDouble(ACCOUNT_BALANCE);
+   double bal=ScaleBal();   // virtual balance (build M): hedge arms at the VIRTUAL account's -3%
    double bookFloat=BookFloat();
 
    if(g_recovering)
@@ -385,7 +385,7 @@ void CheckBasketTrail(bool recovering=false)
    if(UseBasketStop){
       double floorPct=BasketMaxLossPct;
       if(UseVolRegimeFilter && VolScaledFloor){ double r=VolRegimeRatio(); if(r>1.0) floorPct*=MathMax(1.0,MathMin(r,VolFloorMaxMult)); }
-      if(tot <= -floorPct/100.0*AccountInfoDouble(ACCOUNT_BALANCE)){
+      if(tot <= -floorPct/100.0*ScaleBal()){   // virtual balance (build M)
          Print("BASKET STOP fired float=",DoubleToString(tot,2)," floorPct=",DoubleToString(floorPct,1)); CloseAll(); peakBasketFloat=0;
          g_recovering=false; g_recoverWinDir=-1; g_recoverArmed=false; g_recoverPeak=0; g_recoverDeepest=0; return;
       }
@@ -394,7 +394,7 @@ void CheckBasketTrail(bool recovering=false)
    // BEFORE the -20% floor realizes the whole ladder (the $10k Apr-14 -$3,516 anatomy).
    // Runs during recovery too (lightening the loser complements the hedge). Once per bar.
    if(UseStagedFloor && iTime(_Symbol,PERIOD_CURRENT,0)!=g_lastStageBar &&
-      tot <= -StagedFloorPct/100.0*AccountInfoDouble(ACCOUNT_BALANCE)){
+      tot <= -StagedFloorPct/100.0*ScaleBal()){   // virtual balance (build M)
       ulong worst=0; double wp=0;
       for(int si=PositionsTotal()-1; si>=0; si--){
          ulong tk=PositionGetTicket(si);
