@@ -16,7 +16,7 @@
 #property copyright "Marius"
 #property version   "1.00"
 
-#define EA_BUILD_VERSION "MT5-2026-07-14-S26"
+#define EA_BUILD_VERSION "MT5-2026-09-03-S36c-PINRIDE-LOCKDIR"
 #define MAX_PENDING 5000
 
 #include <Trade/Trade.mqh>
@@ -41,6 +41,13 @@ input double GM_GapMult   = 2.0;   // gap detector: jump >= this * avgRange -> p
 input int    GM_GapMode   = 0;     // 0 = original |Open-PrevClose| (MT4-equiv, ~dead on continuous CFDs); 1 = |Close-PrevClose| close-to-close jump (activates the runner detector on gold/oil)
 input double GM_FastMult  = 4.6;   // fast-move detector: |Close[i+3]-Close[i]| >= this * avgRange -> period 4
 input int    goldminershift = 1;   // evaluate signal on this shift (1 = last closed bar)
+//--- SIGNAL-STRENGTH gate (2026-07-23 study): the WEAKEST Goldminer signals (barely past the band)
+//    are the losers across gold/oil/silver buys (gold shallow buys 38%/-0.15R; silver monotonic 52->71%;
+//    oil deep 64%/+0.15R vs shallow 52%/+0.02R). This gates a NEW-basket signal on its PENETRATION depth
+//    past the band = direction-normalized strength (BUY: wpr-upper; SELL: lower-wpr). Rescue bypasses.
+//    Default OFF (base unchanged). Validate every-tick per symbol; shadow win-rate != grid profit -> tester decides.
+input bool   UseSignalStrengthGate = false; // ON = skip signals with penetration < SignalStrengthMin
+input double SignalStrengthMin      = 0;    // min penetration past the band (wpr units); 0 = no cut
 
 //--- Feature-importance instrumentation (UNIVERSAL -- improves gold/silver selection too, not just oil)
 //    Logs the features the coarse DIR|SESSION|ATR fingerprint throws away, so feature-importance
@@ -54,6 +61,27 @@ input int    ADX_Period         = 14;
 input double ADX_Threshold      = 25.0;
 input bool   UseDailyTrendFilter = true;
 input int    DailyMA_Period      = 50;
+//--- FASTER DOWNTREND GATE (2026-07-29): the slow EMA(50) trend filter LAGS a fast crash by ~3 days
+//    (it stayed "bullish" as oil fell 113->82, so the grid kept BUYING into the downtrend = the floor hits).
+//    This adds a faster gate: block a BUY when price is below a SHORT D1 EMA (and a SELL when above) ->
+//    stops feeding a sustained downtrend days sooner = far fewer floor hits. Rescue bypasses. Default OFF.
+input bool   UseFastTrendGate   = false;
+input int    FastTrendPeriod    = 15;      // D1 EMA period for the fast gate (shorter = catches a downtrend sooner)
+//--- CRASH GUARD (2026-07-29): the DIRECT "don't buy a falling knife" gate. Blocks a BUY when price is
+//    CrashGuardPct% below its recent CrashGuardBars-day HIGH (and a SELL when the same % above the low).
+//    Data-checked: this WOULD have blocked the 07-27 reopen buys (oil 84 vs a 10-day high of 93 = 10% down)
+//    that the lagging MA filters let through, WITHOUT whipsawing on normal 3-5% uptrend pullbacks. Rescue bypasses. Default OFF.
+input bool   UseCrashGuard      = false;
+input double CrashGuardPct      = 8.0;     // block BUYs when price is this% below the recent high (SELLs: above the low)
+input int    CrashGuardBars     = 10;      // D1 bars for the recent high/low window
+//    v2 STATE-MACHINE (2026-07-29): the plain distance rule also blocked the RECOVERY buys (price still far
+//    below the old high while basing/turning) = the -45% net cost. Fix: CRASH state is STICKY but exits on a
+//    CONFIRMED TURN -- price breaks the last CrashGuardResumeBars days' high (first higher-high) -> resume
+//    dip-buying immediately. "Don't buy while it's falling; buy again the moment it turns."
+input int    CrashGuardResumeBars = 3;     // exit CRASH state when price breaks this many days' high (0 = plain distance rule)
+//--- CRASH-STATE SELLS (2026-07-30): in crash-state, SELL signals trade the bounces = the regime's winning
+//    side; bypasses the lagging D1 filter + stats gate + sell-zeroed sizing. Base size, own escape/floor. Default OFF.
+input bool   UseCrashStateSells = false;  // ON = in crash-state, sell the bounces (spike-state: buy the dips)
 input bool   UseSessionFilter    = true;
 input int    SessionStartHour    = 9;
 input int    SessionEndHour      = 23;
@@ -63,6 +91,12 @@ input int    SessionEndHour      = 23;
 input bool   StatsFilterEnabled    = true;
 input double MinWinRate            = 0.55;
 input int    MinSamples            = 10;
+// [S30] MKT-STATE regime gate (the 08-09 spec): judge a fingerprint on its win rate IN THE CURRENT
+// REGIME (D1 5-day momentum UP/DOWN) when the gate DB carries mkt_state and the cell is thick enough;
+// thin cell -> all-regime fallback (= today's behaviour). DEFAULT OFF; also inert until a state-bearing
+// DB is PROMOTED (the NDB rule: a fresh table must WIN an A/B first).
+input bool   UseRegimeGate         = false;
+input int    RegimeGateMinN        = 8;
 //--- SIGNAL DIAGNOSTIC LOG (default OFF). Logs EVERY Goldminer fire + each gate's value/pass-fail +
 //    the final TRADE/SKIP decision -> gridstat_signals_<symbol>.csv (Common\Files, per-symbol = no clobber).
 //    Zero effect on trade behaviour; turn ON to see exactly why a signal was/wasn't taken (e.g. MT4 vs MT5 divergence).
@@ -198,10 +232,116 @@ input double RescueBookTargetUSD   = 50.0;     // close the whole book at +this 
 //    MaxConcurrentBaskets while the book stays deep; each entry still needs its own
 //    Goldminer signal + quality gates. 1 = S23/S24 behaviour.
 input int    RescueMaxBaskets      = 1;        // rescue slots beyond MaxConcurrentBaskets (fib C ramp: 2-3)
+//--- LOSS-GATED HEDGE (2026-07-28): the FIX for the signal-gated rescue that never fired in a downtrend.
+//    RSQ2/AllowOppositeWhenDeep only opens the hedge when an OPPOSITE Goldminer signal fires -- in a
+//    sustained downtrend that signal never comes (Goldminer fades dips = BUYs), so oil bled undefended
+//    (0 rescues in 2 weeks live, incl. the -$403 weekend). This fires the SAME proven machinery
+//    (book-exit at +RescueBookTargetUSD + stop-feeding the loser) on the DRAWDOWN LEVEL directly -- no
+//    signal needed. Sized to OVERTAKE (ratio>1 -> net opposite) so a continued adverse move rides the
+//    whole book to +target = "hedge into profit". Reversal-release = the tuning iteration (floor backstops v1).
+input double RescueOnDrawdownPct   = 0.0;      // book float <= -this% of balance FIRES the hedge (no signal). 0 = OFF
+input double RescueHedgeRatio      = 1.5;      // hedge lots = losing-side lots x this (>1 = overtake -> ride into profit)
+//    BIGGER PROFITS (2026-07-28): instead of banking the whole book the instant it reaches
+//    +RescueBookTargetUSD, TRAIL it -- ride a sustained down-move and bank near the bottom.
+input double RescueBookTrailPct    = 0.0;      // >0: after +target, exit on this% giveback from the book's PEAK profit. 0 = fixed target
+//--- REGIME-GATED RESCUE (2026-08-05, the fib-C-hedge-on-GridStat build the live 08-04/05 gold breakout
+//    justified: fib C's hedge rode it +$277 while GridStat's stops paid -$300 fading it. The UNCONDITIONAL
+//    ride failed (rode dip-bounces); this gates the loss-gated ride to CONFIRMED breakout states only:
+//    a drowning SELL book rides BUYs only while g_crashUp (spike confirmed); drowning BUYs only in g_crashDown.
+input bool   RescueOnlyInCrashState = false;   // ON = the drawdown-fired ride requires the matching crash/spike state
+//--- CROSS-MARKET RISK FLAG (2026-08-05): oil<->gold hourly corr -0.204 = same-hour risk-off comove (no lead-lag;
+//    event study: entries off oil's cross do NOT survive). USE = risk, not entries: when the named symbol's
+//    crash-DOWN state is active (published via terminal globals), THIS symbol's spike-UP detection gets 2x more
+//    sensitive (threshold halved). Live-only (tester runs one symbol -> flag inert in backtests).
+input string CrossCrashSymbol       = "";      // e.g. gold sets "SpotCrude": oil crashing -> gold spike-risk elevated
+//    GATE-ONLY mode (2026-08-05, the gold finding: gold's breakouts ~= its noise amplitude -> distance
+//    blocking kills half the profitable fade flow, B run $9,226->$4,833). ON = compute + publish the states
+//    and use them for the REGIME-GATED RESCUE + cross flag, but do NOT block entries.
+input bool   CrashGuardGateOnly     = false;
+//--- SUB-8%% TRIGGER RE-ENGINEERING (2026-08-07, the C1 sweep cliff autopsy: 3/6/7%% = IDENTICAL death
+//    spiral because (a) the trigger was SAMPLED only at signal times — gold blows through the 3-7%% band
+//    between signals so all sub-8 configs armed at the SAME signal; (b) the flat +$40 book exit is crumbs
+//    for an 8-11-leg armed book -> churn -> shrinking balance -> %%-trigger arms on pennies -> death.
+//    All default-OFF -> locked behaviour byte-identical. These are the enablers for a usable 5-7%% trigger.
+input bool   RescueTickArm          = false;   // evaluate the loss-trigger EVERY TICK (persistent arm state) instead of only at signal times — fib C parity (fib C arms on-tick); gives sub-8 triggers real resolution
+input double RescueTargetPctDeepest = 0.0;     // >0: book exit target = max(RescueBookTargetUSD, this%% of the DEEPEST book loss this rescue) — scales the exit to the book it is rescuing
+input int    RescueRearmCooldownBars = 0;      // >0: after a rescue ends (exit OR disarm), no re-arm for this many bars — kills the arm->exit->re-arm churn
+//--- [S36 2026-09-03] PIN-THEN-RIDE -- the 09-02/03 double guard-trip autopsy. The FIBC8 ride never ran:
+//    it arms at the SAME -8%% as the Book Guard but is signal-sampled (guard is tick-evaluated) and every
+//    ride leg needs a Goldminer signal -- there were NONE for 15h overnight. First-order sim on the real
+//    bars (live HALF book, 4 sells 0.07): tick-arm alone = guard trip -$223 (no signal, nothing to ride);
+//    immediate 1.5x overtake = guard trip on the first pullback (the 07-29 oil finding again);
+//    immediate 1:1 PIN + fib-ramped rides = BOOK EXIT +$160 at 13:00. So: neutralize NOW at the arm
+//    (no signal, any hour), then let the signal-driven overtake grow on top. All default-OFF.
+input bool   RescueImmediateLeg     = false;   // on TICK-ARM open a naked hedge leg at market immediately (no signal) = the PIN
+input double RescueImmediateRatio   = 1.0;     // pin lots = losing-side lots x this (1.0 = neutral; >1 = immediate overtake, tested-rejected)
+input bool   RescueRampByLegs       = false;   // ride ladder steps per ride LEG (single-basket engines: CountSameDirBaskets is always 1 -> the fib ramp never stepped; demo 09-03: ten 0.02 legs)
+input bool   RescueSuspendsStaged   = false;   // no STAGED FLOOR cuts while the rescue is armed/riding (treatment before amputation)
+input bool   RescueBookSingle       = false;   // [S36b] run the rescue book manager (tick-arm/pin/book-exit/state-release) on SINGLE-basket engines too -- it was unreachable there (same gate S33 found for the freeze)
+input bool   RescueLockDir          = false;   // [S36c] an armed ride keeps its direction (never re-derived from floats -> no pullback flip after a pin)
+//--- STATE-RELEASE OVERLAY (S31, 2026-08-24 -- fib C build P port, validated on fib C's full-tick
+//    bench: PF 1.47->2.00, RF 1.83->2.96, worst episode -810->-169 at -5.7%% net; plateau-checked
+//    (MinMark -200/-300 identical, cliff at -400). While a RESCUE ride is live and the book has not
+//    reached its exit, track the ride's post-arm extreme vs ATR(D1,14); at the first bad state --
+//    (pull>=SR_PullATR AND stale>=SR_StaleHours) OR (pos<=0 AND pull>=SR_PullATR) -- close the WHOLE
+//    book at market, but ONLY while the loss is still small (>= StateReleaseMinMark). Deep books are
+//    never state-released (they mostly recover); the floor stays the backstop. DEFAULT OFF.
+input bool   UseStateRelease       = false;
+input double SR_PullATR            = 0.30;    // pullback off the post-arm extreme, x ATR(D1,14)
+input double SR_StaleHours         = 7.0;     // hours without a new post-arm extreme
+input double StateReleaseMinMark   = -200.0;  // release only while book float >= this $ (0 = always)
+input bool   SR_UsePosLeg          = true;    // include the (pos<=0 & pull) leg of the trigger
+//--- EPISODE TIME-CAP (S32, 2026-08-24 -- the 08-20 TIMECAP-N build, priced utility: cap-10d
+//    ~ -$201/8.5mo at $3k oil scale, no new tail (floor binds first), eliminates multi-week sits.
+//    Episode age = oldest open position's age (position-derived -> restart-safe). DEFAULT OFF.
+input double MaxEpisodeDays        = 0.0;     // >0: close ALL positions once the oldest is this many days old
+//--- FREEZE HEDGE (2026-07-29): the NON-directional hedge -- neutralize the drowning book 1:1 (NOT overtake,
+//    so no bet on the trend continuing = no whipsaw crush), HOLD it frozen, and RELEASE the hedge only when
+//    price bounces back off the adverse extreme, letting the recovering side run home. Default OFF.
+input bool   UseFreezeHedge        = false;    // ON = freeze/neutralize + release-on-bounce (overrides the signal-driven ride)
+input double FreezeReleaseATR      = 1.5;      // release the hedge when price bounces this x ATR(D1) back from the adverse extreme
+//--- [S34 2026-08-27] GOLD-NATIVE FREEZE: the 07-29 freeze carried two OIL design choices verbatim, and both
+//    are why it failed on gold (08-26: net -90%, eqDD 13->44%): (1) it BLOCKS ENTRIES while frozen -> gold's
+//    turnover edge starves; (2) it RELEASES ON A 1.5xATR BOUNCE -> gold's adverse moves SUSTAIN, so release ->
+//    re-drown -> deeper re-freeze. Two default-OFF dials:
+input bool   FreezeAllowEntries    = false;    // keep trading NEW baskets while a basket is frozen (needs MaxConcurrentBaskets>1 so the frozen basket keeps its own tag/exit)
+input int    FreezeReleaseMode     = 0;        // 0 = bounce FreezeReleaseATR x ATR (oil); 1 = EXHAUSTION: release only once the adverse move is DEAD (pulled back >= SR_PullATR x ATR off its extreme AND no new extreme for >= SR_StaleHours) -- the S31 gauges as the release trigger
 //--- equity-DD reducer (default OFF = locked config unchanged): close a LOSING basket when D1 trend flips AGAINST it
 //    (the regime change that turns a recoverable dip into a one-way bleed) -> caps the tail before the -20% floor,
 //    lowering intraday equity DD so the proven engine can be sized bigger. Validate every-tick vs the $7,908 baseline.
 input bool   UseRegimeBasketExit   = false;
+//--- [S35 2026-08-28] FRIDAY GREEN-STOP -- the operator's Friday-risk regime, automated.
+//    On Friday from FridayGuardHour (server), place a break-even-PLUS stop under any leg that is
+//    ALREADY IN PROFIT, so a wild Friday session or a reversal into the close cannot turn a green
+//    leg red. THE SAFETY RULES ARE THE POINT:
+//      * GREEN LEGS ONLY -- it never touches a red position. Realizing a recoverable oil float is
+//        the documented cut-class disease (6 kills: delev / melt / age-cap / state-release /
+//        time-cap / rescue-cap). This lever can only protect profit, never realize a loss.
+//      * SKIPPED while a RESCUE or FREEZE is armed -- those manage the WHOLE book, and stopping one
+//        leg strips the structure (the fib C naked-ride-leg lesson: an individual exit on a hedged
+//        book leaves the losers naked).
+//      * Never loosens an existing stop; respects the broker stops level (skips if too close).
+//    Offset is ATR-SCALED so it transfers across symbols per [[exit-rules-per-symbol]]:
+//    0.01 x ATR(D1) is ~0.028 on oil (= the 0.029 the operator set by hand on 2026-08-28) and
+//    ~0.94 on gold. FridayStopLockPct > 0 additionally locks that fraction of the leg's open profit.
+//    WARNING (the operator's own 07-27 finding): a stop is NOT weekend-gap protection -- the order
+//    executes on the Monday reopen at the GAP price, not at the level. It caps a live Friday session.
+input bool   UseFridayGreenStop    = false;   // default OFF -> every locked config byte-identical
+input int    FridayGuardHour       = 16;      // server hour from which the guard acts on Fridays
+input double FridayStopOffsetATR   = 0.01;    // break-even-plus offset as a fraction of ATR(D1)
+input double FridayStopLockPct     = 0.0;     // >0 = also lock this fraction of the leg's open profit
+//--- [S35b 2026-08-28] FRIDAY BANK (the BOOK-level version -- built after the per-leg stop tested
+//    NEGATIVE: BE-stopping individual green legs DISMANTLES a hedged book. 2026-01-09 specimen: five
+//    green rescue BUYs stopped at BE in six minutes, leaving the red side naked -> gross profit -45%
+//    and the largest single loss GREW. The green legs are LOAD-BEARING.)
+//    This version acts on the WHOLE BOOK and only when the whole book is green: at the Friday cutoff,
+//    if total float >= FridayBankMinUSD, close everything and bank it. Structurally it can never
+//    realize a red book and can never leave a naked leg -- it is the 08-10 weekend spec's state (1)
+//    ("book green/~flat -> FLATTEN & BANK, free + zero gap risk"), which is the branch the operator
+//    executes by hand.
+input bool   UseFridayBank         = false;   // default OFF
+input int    FridayBankHour        = 20;      // server hour on Friday to bank a green book
+input double FridayBankMinUSD      = 0.0;     // only bank when total book float >= this
 //--- Break-even SL + grid guards
 input bool   UseBreakEvenSL        = true;
 input double BreakEvenTriggerR     = 0.7;
@@ -215,7 +355,7 @@ input int    MagicSeed             = 0;       // 0 = auto-hash from symbol+perio
 //--- Globals
 double   point;
 datetime lastBarTime = 0;
-int      hMA, hADX, hMA_D1, hATR_cur, hATR_avg, hATR_D1, hATR_D1_60;
+int      hMA, hADX, hMA_D1, hMA_D1_fast, hATR_cur, hATR_avg, hATR_D1, hATR_D1_60;
 
 // Pending signal tracking (triple-barrier)
 string   pSetup[MAX_PENDING];
@@ -234,6 +374,8 @@ double   pMaAngle[MAX_PENDING];    // MA-angle steepness, directional (+ = MA sl
 double   pRunup[MAX_PENDING];      // dip-vs-continuation: directional move into entry /ATR (+cont, -dip)
 int      pPeriodUsed[MAX_PENDING]; // adaptive WPR period actually used (3/4 = accelerated, else base)
 int      pBarsInBand[MAX_PENDING]; // how many bars the swing took (opposite-extreme breakout -> now)
+string   pSkip[MAX_PENDING];       // [S28] gate-skip reason ("" = passed) -- ALL fires get barrier outcomes now
+string   pState[MAX_PENDING];      // [S30] MKT-STATE (UP/DOWN) at signal time -> mkt_state column
 int      pCount = 0;
 
 double   g_shadowTotalR = 0.0;
@@ -246,7 +388,22 @@ double   g_peakBasketFloat = 0.0;
 bool     g_lockArmed = false;   // lock-trail: basket has reached +ProfitTargetUSD and is now riding (Conc<=1 only)
 datetime g_lastStageBar = 0;    // staged floor: at most one worst-leg cut per bar (across all baskets)
 int      g_rescueDir = -1;      // AllowOppositeWhenDeep: direction of the open rescue basket(s), -1 = none
+double   g_rescuePeak = 0.0;    // rescue trailing book-exit: peak book float while riding a rescue
+bool     g_outOfSession = false; // fib C overlay: out-of-session processing exists ONLY for the rescue
+double   g_freezeExtreme = 0.0; // freeze hedge: the adverse price extreme while frozen (release = bounce off it)
+datetime g_freezeExtremeTime = 0; // [S34] when the adverse extreme was last set (exhaustion release = stale off it)
+int      g_freezeDir = -1;      // freeze hedge: direction of the FROZEN (losing) side, -1 = not frozen
+double   g_freezeAnchor = 0.0;  // freeze hedge anti-churn: after a release, re-freeze only at a NEW adverse extreme
+bool     g_crashDown = false;   // crash-guard v2 state: sticky "falling knife" (blocks BUYs) until a confirmed turn up
+bool     g_crashUp   = false;   // crash-guard v2 state: sticky "vertical spike" (blocks SELLs) until a confirmed turn down
+double   g_crashDownAnchor = 0; // after a turn-exit: re-enter DOWN state only on a NEW breakdown below this (the basing low)
+double   g_crashUpAnchor   = 0; // after a turn-exit: re-enter UP state only on a NEW breakout above this (the basing high)
                                 // (research lever: not restart-safe; harden with a comment tag if promoted)
+bool     g_rideArm = false;         // [sub-8] tick-armed rescue state: trigger crossed at SOME tick; next signal rides
+double   g_rescueDeepest = 0.0;     // [sub-8] deepest book float this rescue (for RescueTargetPctDeepest)
+datetime g_rescueCooldownUntil = 0; // [sub-8] no re-arm before this time (RescueRearmCooldownBars)
+double   g_srArmPrice = 0, g_srExt = 0;  // [S31] state-release: post-arm extreme tracking
+datetime g_srExtTime = 0;
 
 //+------------------------------------------------------------------+
 int OnInit()
@@ -255,6 +412,7 @@ int OnInit()
    hMA      = iMA(_Symbol, PERIOD_CURRENT, MA_Period, 0, MODE_EMA, PRICE_CLOSE);
    hADX     = iADX(_Symbol, PERIOD_CURRENT, ADX_Period);
    hMA_D1   = iMA(_Symbol, PERIOD_D1, DailyMA_Period, 0, MODE_EMA, PRICE_CLOSE);
+   hMA_D1_fast = iMA(_Symbol, PERIOD_D1, FastTrendPeriod, 0, MODE_EMA, PRICE_CLOSE);
    hATR_cur = iATR(_Symbol, PERIOD_CURRENT, 20);
    hATR_avg = iATR(_Symbol, PERIOD_CURRENT, 100);
    hATR_D1  = iATR(_Symbol, PERIOD_D1, 14);
@@ -276,9 +434,22 @@ int OnInit()
          FileWrite(fh, "setup_key","entry_time","entry_price","direction",
                    "upper_barrier","lower_barrier","time_barrier","atr_at_entry",
                    "barrier_hit","r_multiple","outcome_time","mfe_r","big_move","wpr",
-                   "adx","ma_angle","runup","period_used","bars_in_band");
+                   "adx","ma_angle","runup","period_used","bars_in_band","mkt_state");
          FileClose(fh);
       }
+      // [S28] ALL-FIRES research file: every in-session Goldminer fire incl. gate-SKIPPED ones,
+      // with the skip reason as a trailing column. The production research CSV above stays
+      // byte-identical (gate-passers only) -- consumers/promote path untouched.
+      int fh2 = FileOpen(AllFiresFile(), FILE_WRITE|FILE_CSV|FILE_COMMON|FILE_ANSI, ',');
+      if(fh2 != INVALID_HANDLE)
+      {
+         FileWrite(fh2, "setup_key","entry_time","entry_price","direction",
+                   "upper_barrier","lower_barrier","time_barrier","atr_at_entry",
+                   "barrier_hit","r_multiple","outcome_time","mfe_r","big_move","wpr",
+                   "adx","ma_angle","runup","period_used","bars_in_band","skip_reason","mkt_state");
+         FileClose(fh2);
+      }
+      Print("CONFIG | [S28] all-fires shadow log -> ", AllFiresFile());
    }
    if(!StatsCollectionMode)
    {
@@ -312,8 +483,24 @@ int OnInit()
             "% RescueBookTargetUSD=", DoubleToString(RescueBookTargetUSD,0),
             " RescueMaxBaskets=", RescueMaxBaskets,
             " (unblock+GROW the natural hedge; while rescued: stop feeding loser + book exit at +target)");
+      Print("CONFIG | RescueOnDrawdownPct=", DoubleToString(RescueOnDrawdownPct,1),
+            "% RescueHedgeRatio=", DoubleToString(RescueHedgeRatio,2),
+            " (LOSS-GATED hedge: fires the recovery hedge on the drawdown itself, no signal needed)");
+      Print("CONFIG | S36-PINRIDE | RescueBookSingle=", RescueBookSingle, " RescueLockDir=", RescueLockDir, " RescueImmediateLeg=", RescueImmediateLeg, " ratio=", DoubleToString(RescueImmediateRatio,2),
+            " RescueRampByLegs=", RescueRampByLegs, " RescueSuspendsStaged=", RescueSuspendsStaged);
+      Print("CONFIG | SUB8-RECAL | RescueTickArm=", RescueTickArm,
+            " RescueTargetPctDeepest=", DoubleToString(RescueTargetPctDeepest,0),
+            "% RescueRearmCooldownBars=", RescueRearmCooldownBars);
+      Print("CONFIG | S31 STATE-RELEASE | UseStateRelease=", UseStateRelease,
+            " pull>=", DoubleToString(SR_PullATR,2), "xATR14 stale>=", DoubleToString(SR_StaleHours,1),
+            "h minMark=", DoubleToString(StateReleaseMinMark,0), " posLeg=", SR_UsePosLeg);
+      Print("CONFIG | S32 TIMECAP | MaxEpisodeDays=", DoubleToString(MaxEpisodeDays,1), (MaxEpisodeDays>0?" (episode force-close)":" (off)"));
+      Print("CONFIG | S34 GOLD-FREEZE | FreezeAllowEntries=", FreezeAllowEntries, " FreezeReleaseMode=", FreezeReleaseMode, (FreezeReleaseMode==1?" (EXHAUSTION: pull>=SR_PullATR & stale>=SR_StaleHours)":" (bounce)"));
+      Print("CONFIG | S35 FRIDAY GREEN-STOP | UseFridayGreenStop=", UseFridayGreenStop,
+            " hour=", FridayGuardHour, " offsetATR=", DoubleToString(FridayStopOffsetATR,3),
+            " lockPct=", DoubleToString(FridayStopLockPct,2), " (green legs only; skipped while rescue/freeze armed)");
       {
-         int _szh = FileOpen(SizingCSVFile, FILE_READ|FILE_CSV|FILE_COMMON|FILE_ANSI, ',');
+         int _szh = FileOpen(SizingCSVFile, FILE_READ|FILE_SHARE_READ|FILE_SHARE_WRITE|FILE_CSV|FILE_COMMON|FILE_ANSI, ',');
          Print("CONFIG | sizing file '", SizingCSVFile, "' open: ",
                (_szh!=INVALID_HANDLE ? "OK (found)" : "FAILED / NOT FOUND -> flat 1.0x"));
          if(_szh!=INVALID_HANDLE) FileClose(_szh);
@@ -329,6 +516,8 @@ int OnInit()
          { FileWrite(sfh,"time","dir","setup_key","wpr","adx","ma_angle","d1_bull","winrate","n","decision"); FileClose(sfh); }
       }
       Print("CONFIG | UseSignalLog=", UseSignalLog, (UseSignalLog ? " -> "+SigFile() : ""));
+      Print("CONFIG | [S30] UseRegimeGate=", UseRegimeGate, " RegimeGateMinN=", RegimeGateMinN,
+            " (regime-split WR when the DB carries mkt_state; thin cell -> all-regime fallback)");
    }
    return(INIT_SUCCEEDED);
 }
@@ -525,6 +714,16 @@ double RunupBefore(int dir)
    return(mv / atr);
 }
 
+// [S30] MKT-STATE: D1 5-day momentum sign (identical to the register's wrUp/wrDown axis) --
+// the regime dimension of the 4-layer doctrine, computable at entry with zero lag assumptions.
+// Binary v1 (UP/DOWN); the crash/spike state machine stays its own separate layer.
+string MktState()
+{
+   double c1 = iClose(_Symbol, PERIOD_D1, 1), c6 = iClose(_Symbol, PERIOD_D1, 6);
+   if(c1 <= 0 || c6 <= 0) return("UP");
+   return((c1 >= c6) ? "UP" : "DOWN");
+}
+
 string ClassifySetup(int dir)
 {
    string d = (dir == ORDER_TYPE_BUY) ? "BUY" : "SELL";
@@ -540,10 +739,20 @@ string ClassifySetup(int dir)
 }
 
 //+------------------------------------------------------------------+
+// [S28] derive the all-fires filename from StatsCSVFile: "x.csv" -> "x_allfires.csv"
+string AllFiresFile()
+{
+   string base = StatsCSVFile;
+   StringReplace(base, ".csv", "");
+   return(base + "_allfires.csv");
+}
+
 void AddPendingSignal(string key, int dir, bool bigMove, double wpr,
-                      double adx, double maAngle, double runup, int periodUsed, int barsInBand)
+                      double adx, double maAngle, double runup, int periodUsed, int barsInBand,
+                      string skipReason, string mktState)
 {
    if(pCount >= MAX_PENDING) return;
+   if(skipReason != "" && MQLInfoInteger(MQL_OPTIMIZATION)) return;   // [S28] optimizations track gate-passers only (metric + speed unchanged)
    double atrD1 = ReadBuf(hATR_D1,0,1);
    double bid = SymbolInfoDouble(_Symbol, SYMBOL_BID);
    double ask = SymbolInfoDouble(_Symbol, SYMBOL_ASK);
@@ -558,6 +767,8 @@ void AddPendingSignal(string key, int dir, bool bigMove, double wpr,
    pAtrAtEntry[pCount]=atrD1; pPeakR[pCount]=0; pBigMove[pCount]=bigMove; pWpr[pCount]=wpr;
    pAdx[pCount]=adx; pMaAngle[pCount]=maAngle; pRunup[pCount]=runup; pPeriodUsed[pCount]=periodUsed;
    pBarsInBand[pCount]=barsInBand;
+   pSkip[pCount]=skipReason;
+   pState[pCount]=mktState;
    pCount++;
 }
 
@@ -572,18 +783,51 @@ void RemovePendingAt(int idx)
       pBigMove[i]=pBigMove[i+1]; pWpr[i]=pWpr[i+1];
       pAdx[i]=pAdx[i+1]; pMaAngle[i]=pMaAngle[i+1]; pRunup[i]=pRunup[i+1]; pPeriodUsed[i]=pPeriodUsed[i+1];
       pBarsInBand[i]=pBarsInBand[i+1];
+      pSkip[i]=pSkip[i+1];
+      pState[i]=pState[i+1];
    }
    pCount--;
 }
 
 void WriteOutcome(int idx, string hit, double r)
 {
-   g_shadowTotalR += r;
+   if(pSkip[idx]=="") g_shadowTotalR += r;        // [S28] optimizer metric stays GATE-PASSERS ONLY (unchanged semantics)
    if(MQLInfoInteger(MQL_OPTIMIZATION)) return;   // optimization: accumulate R only, no per-row CSV (avoids agent file contention)
-   int fh = FileOpen(StatsCSVFile, FILE_READ|FILE_WRITE|FILE_CSV|FILE_COMMON|FILE_ANSI, ',');
-   if(fh == INVALID_HANDLE) return;
-   FileSeek(fh, 0, SEEK_END);
-   FileWrite(fh,
+   if(pSkip[idx]=="")                             // [S28] production research row: gate-passers only, byte-identical to pre-S28
+   {
+      int fh = FileOpen(StatsCSVFile, FILE_READ|FILE_WRITE|FILE_CSV|FILE_COMMON|FILE_ANSI, ',');
+      if(fh != INVALID_HANDLE)
+      {
+         FileSeek(fh, 0, SEEK_END);
+         FileWrite(fh,
+            pSetup[idx],
+            TimeToString(pEntryTime[idx], TIME_DATE|TIME_MINUTES),
+            DoubleToString(pEntryPrice[idx], _Digits),
+            (pDir[idx]==ORDER_TYPE_BUY) ? "BUY" : "SELL",
+            DoubleToString(pUpperBarrier[idx], _Digits),
+            DoubleToString(pLowerBarrier[idx], _Digits),
+            TimeToString(pTimeBarrier[idx], TIME_DATE|TIME_MINUTES),
+            DoubleToString(pAtrAtEntry[idx], _Digits),
+            hit,
+            DoubleToString(r, 3),
+            TimeToString(TimeCurrent(), TIME_DATE|TIME_MINUTES),
+            DoubleToString(pPeakR[idx], 3),
+            (pBigMove[idx] ? "1" : "0"),
+            DoubleToString(pWpr[idx], 1),
+            DoubleToString(pAdx[idx], 1),
+            DoubleToString(pMaAngle[idx], 1),
+            DoubleToString(pRunup[idx], 3),
+            IntegerToString(pPeriodUsed[idx]),
+            IntegerToString(pBarsInBand[idx]),
+            pState[idx]);
+         FileClose(fh);
+      }
+   }
+   // [S28] all-fires row: EVERY fire (passed + skipped) with the skip reason as the trailing column
+   int fh2 = FileOpen(AllFiresFile(), FILE_READ|FILE_WRITE|FILE_CSV|FILE_COMMON|FILE_ANSI, ',');
+   if(fh2 == INVALID_HANDLE) return;
+   FileSeek(fh2, 0, SEEK_END);
+   FileWrite(fh2,
       pSetup[idx],
       TimeToString(pEntryTime[idx], TIME_DATE|TIME_MINUTES),
       DoubleToString(pEntryPrice[idx], _Digits),
@@ -602,8 +846,10 @@ void WriteOutcome(int idx, string hit, double r)
       DoubleToString(pMaAngle[idx], 1),
       DoubleToString(pRunup[idx], 3),
       IntegerToString(pPeriodUsed[idx]),
-      IntegerToString(pBarsInBand[idx]));
-   FileClose(fh);
+      IntegerToString(pBarsInBand[idx]),
+      (pSkip[idx]=="" ? "PASS" : pSkip[idx]),
+      pState[idx]);
+   FileClose(fh2);
 }
 
 void CheckPendingBarriers()
@@ -642,14 +888,25 @@ void OnTick()
    if(newBar) lastBarTime = iTime(_Symbol, PERIOD_CURRENT, 0);
 
    if(StatsCollectionMode) CheckPendingBarriers();
-   else { ManageBreakEvenSL(); ManageGrid(); }
+   else { ManageBreakEvenSL(); ManageGrid(); ManageFridayGreenStop(); ManageFridayBank(); }
    if(!newBar) return;
 
    if(UseSessionFilter)
    {
       int hr = BarHour(TimeCurrent());
-      if(!(hr >= SessionStartHour && hr < SessionEndHour)) return;
+      bool inSess = (hr >= SessionStartHour && hr < SessionEndHour);
+      // fib C overlay (2026-08-05): the recovery hedge must work OUT of session -- the Aug-5 melt-up ran
+      // 03:00-08:00 server and fib C's live hedge legs fired 03:30/05:25 while this gate slept. Out of
+      // session, processing continues ONLY so the rescue can arm/ride; normal entries stay blocked below.
+      g_outOfSession = !inSess;
+      if(!inSess)
+      {
+         bool rescueLive = (g_rescueDir >= 0) ||
+                           (RescueOnDrawdownPct > 0 && PortfolioFloat() <= -RescueOnDrawdownPct/100.0 * Bal_());
+         if(!rescueLive) return;
+      }
    }
+   else g_outOfSession = false;
 
    bool bigMove=false; double wpr=0; int periodUsed=0; int barsInBand=0;
    int dir = GetGoldminerSignal(bigMove, wpr, periodUsed, barsInBand);
@@ -665,41 +922,146 @@ void OnTick()
 
    // rescue = the book is deep and THIS direction is not the losing side -> the natural
    // hedge the lagging D1 / full slots would otherwise refuse (fib C anatomy, S23)
+   // RECOVERY HEDGE (fib C mechanism, user 2026-07-29): while the book is in DD, ride the NEW TREND
+   // (= opposite the losing side) on EVERY Goldminer signal -- FORCE the trend direction and let the
+   // hedge grow a leg per signal (capped by effMaxB below) until the book recovers to +target.
    bool rescue = false;
-   if(AllowOppositeWhenDeep &&
+   bool rideRamp = false;   // fib C overlay: loss-gated ride legs ramp up the fib ladder (the OVERTAKE)
+   if(UseFreezeHedge && g_freezeDir >= 0 && !FreezeAllowEntries) return;   // FROZEN: no new entries (unless [S34] FreezeAllowEntries)
+   bool bookDeep = (!UseFreezeHedge && RescueOnDrawdownPct > 0 && PortfolioFloat() <= -RescueOnDrawdownPct/100.0 * Bal_());
+   if(RescueTickArm) bookDeep = g_rideArm;   // [sub-8] the tick-armed state replaces signal-time sampling (fib C parity)
+   else if(RescueRearmCooldownBars > 0 && TimeCurrent() < g_rescueCooldownUntil) bookDeep = false;  // cooldown composes standalone too
+   if((g_rescueDir >= 0 || bookDeep) && PortfolioFloat() < RescueBookTargetUSD)
+   {
+      int loseDir  = (SameDirFloat(ORDER_TYPE_BUY) <= SameDirFloat(ORDER_TYPE_SELL)) ? (int)ORDER_TYPE_BUY : (int)ORDER_TYPE_SELL;
+      int hedgeDir = (loseDir == (int)ORDER_TYPE_BUY) ? (int)ORDER_TYPE_SELL : (int)ORDER_TYPE_BUY;
+      // [S36c] RIDE THE ARMED DIRECTION. With a 1:1 pin the two sides float symmetrically, so the float-based
+      // loser flips on every pullback and the ride starts selling the dip it just hedged (09-03 smoke test:
+      // pin BUY 0.04 -> pullback -> ride SELLS 0.03/0.05/0.08 into the overnight squeeze = -$418). Lock it.
+      if(RescueLockDir && g_rescueDir >= 0)
+      { hedgeDir = g_rescueDir; loseDir = (hedgeDir == (int)ORDER_TYPE_BUY) ? (int)ORDER_TYPE_SELL : (int)ORDER_TYPE_BUY; }
+      // REGIME GATE: only arm the ride in a CONFIRMED move against the drowning side (fib C's win condition);
+      // an already-armed ride (g_rescueDir>=0) continues to completion regardless.
+      bool stateOK = !RescueOnlyInCrashState || g_rescueDir >= 0 ||
+                     (loseDir == (int)ORDER_TYPE_SELL && g_crashUp) ||
+                     (loseDir == (int)ORDER_TYPE_BUY  && g_crashDown);
+      if(stateOK)
+      {
+         dir    = hedgeDir;   // ride the trend: force the winning (opposite-of-loser) side, override the signal's own dir
+         rescue = true;
+         rideRamp = true;     // fib C ladder on the ride legs (1,1,2,3,5...) so the winning side OVERTAKES
+      }
+   }
+   else if(AllowOppositeWhenDeep &&
       PortfolioFloat() <= -OppositeWhenDeepPct/100.0 * Bal_() &&
       SameDirFloat(dir) >= 0)
       rescue = true;
 
-   if(!rescue && UseDailyTrendFilter && ((dir==ORDER_TYPE_BUY && !bull) || (dir==ORDER_TYPE_SELL && bull)))
+   if(g_outOfSession && !rescue) return;   // out-of-session processing exists ONLY for the rescue (fib C parity)
+
+   bool crashSell = UseCrashStateSells && !rescue &&
+                    ((g_crashDown && dir==ORDER_TYPE_SELL) || (g_crashUp && dir==ORDER_TYPE_BUY));
+   if(!rescue && !crashSell && UseDailyTrendFilter && ((dir==ORDER_TYPE_BUY && !bull) || (dir==ORDER_TYPE_SELL && bull)))
       skip = "D1trend";
-   else if(!IsTrendStrong())
+   else if(!rescue && !IsTrendStrong())
       skip = "trendWeak(adx="+DoubleToString(adx,1)+",ang="+DoubleToString(MathAbs(maAngle),1)+")";
 
-   double wr=0; int ns=0; bool known = LookupSetupStats(key, wr, ns);   // looked up for the log too
+   if(skip=="" && !rescue && UseFastTrendGate)     // FASTER downtrend gate: block a BUY below / SELL above the short D1 EMA
+   {
+      double fastMA = ReadBuf(hMA_D1_fast,0,0);
+      double px     = SymbolInfoDouble(_Symbol, SYMBOL_BID);
+      if(fastMA > 0 && ((dir==ORDER_TYPE_BUY && px < fastMA) || (dir==ORDER_TYPE_SELL && px > fastMA)))
+         skip = "fastTrend";
+   }
+
+   if(UseCrashGuard)         // CRASH GUARD v2: sticky crash state, exits on a CONFIRMED TURN (first higher-high)
+   {
+      double hh[], ll[], rh[], rl[];
+      int rb = (CrashGuardResumeBars > 0) ? CrashGuardResumeBars : 1;
+      if(CopyHigh(_Symbol, PERIOD_D1, 1, CrashGuardBars, hh)==CrashGuardBars &&
+         CopyLow(_Symbol,  PERIOD_D1, 1, CrashGuardBars, ll)==CrashGuardBars &&
+         CopyHigh(_Symbol, PERIOD_D1, 1, rb, rh)==rb &&
+         CopyLow(_Symbol,  PERIOD_D1, 1, rb, rl)==rb)
+      {
+         double recHigh = hh[ArrayMaximum(hh)], recLow = ll[ArrayMinimum(ll)];
+         double rsHigh  = rh[ArrayMaximum(rh)], rsLow  = rl[ArrayMinimum(rl)];
+         double px2     = SymbolInfoDouble(_Symbol, SYMBOL_BID);
+         double upPct   = CrashGuardPct;      // spike-UP threshold; halved while the cross-market flag is hot
+         if(StringLen(CrossCrashSymbol) > 0 && GlobalVariableCheck("GSXS_DN_"+CrossCrashSymbol) &&
+            GlobalVariableGet("GSXS_DN_"+CrossCrashSymbol) > 0.5)
+            upPct *= 0.5;
+         // anchors reset once price is back inside the normal band (episode fully over)
+         if(px2 >= recHigh*(1.0-CrashGuardPct/100.0)) g_crashDownAnchor = 0;
+         if(px2 <= recLow *(1.0+upPct/100.0)) g_crashUpAnchor   = 0;
+         // ENTER crash state on the distance trigger (a real fall/spike, not a routine dip);
+         // after a turn-exit, ONLY a NEW breakdown below the basing low re-enters (anti-churn anchor)
+         if(!g_crashDown && px2 < recHigh*(1.0-CrashGuardPct/100.0) &&
+            (g_crashDownAnchor==0 || px2 < g_crashDownAnchor))
+            { g_crashDown=true; Print("CRASH-STATE DOWN entered (", DoubleToString(px2,2), " << ", DoubleToString(recHigh,2), "): BUYs off until a turn"); }
+         if(!g_crashUp && px2 > recLow*(1.0+upPct/100.0) &&
+            (g_crashUpAnchor==0 || px2 > g_crashUpAnchor))
+            { g_crashUp=true;   Print("CRASH-STATE UP entered (", DoubleToString(px2,2), " >> ", DoubleToString(recLow,2), "): SELLs off until a turn"); }
+         // EXIT on a confirmed TURN: first break of the last ResumeBars days' extreme -> resume immediately
+         if(CrashGuardResumeBars > 0)
+         {
+            if(g_crashDown && px2 > rsHigh) { g_crashDown=false; g_crashDownAnchor=rsLow; Print("CRASH-STATE DOWN exited: turn confirmed (", DoubleToString(px2,2), " > ", DoubleToString(rsHigh,2), ") -> BUYs resume; re-block only below ", DoubleToString(rsLow,2)); }
+            if(g_crashUp   && px2 < rsLow)  { g_crashUp=false;   g_crashUpAnchor=rsHigh; Print("CRASH-STATE UP exited: turn confirmed -> SELLs resume"); }
+         }
+         else   // ResumeBars=0 -> v1 plain distance behaviour (state clears when distance normalizes)
+         {
+            if(g_crashDown && px2 >= recHigh*(1.0-CrashGuardPct/100.0)) g_crashDown=false;
+            if(g_crashUp   && px2 <= recLow *(1.0+upPct/100.0)) g_crashUp=false;
+         }
+         if(skip=="" && !rescue && !CrashGuardGateOnly &&
+            ((dir==ORDER_TYPE_BUY && g_crashDown) || (dir==ORDER_TYPE_SELL && g_crashUp)))
+            skip = "crashState";
+         GlobalVariableSet("GSXS_DN_"+_Symbol, g_crashDown ? 1.0 : 0.0);   // publish for cross-market consumers
+         GlobalVariableSet("GSXS_UP_"+_Symbol, g_crashUp   ? 1.0 : 0.0);
+      }
+   }
+
+   string mstate = MktState();                                          // [S30] regime axis at signal time
+   double wr=0, wrS=0; int ns=0, nsS=0;
+   bool known = LookupSetupStats(key, wr, ns, mstate, wrS, nsS);        // looked up for the log too
 
    if(StatsCollectionMode)
    {
-      if(skip=="") AddPendingSignal(key, dir, bigMove, wpr, adx, maAngle, runup, periodUsed, barsInBand);
+      // [S28] ALL fires get barrier outcomes now (skip reason travels with the row -> _allfires.csv);
+      // gate-passers alone still populate the production research CSV + the OnTester R metric.
+      AddPendingSignal(key, dir, bigMove, wpr, adx, maAngle, runup, periodUsed, barsInBand, skip, mstate);
       LogSignal(dir, key, wpr, adx, maAngle, bull, wr, ns, (skip=="" ? "SHADOW_LOGGED" : "SHADOW_SKIP:"+skip));
       return;
    }
 
    // ===== STAGE 2: TRADE ENTRY (gates in the same order; behaviour unchanged, just records the reason) =====
-   if(skip=="" && StatsFilterEnabled)
+   if(skip=="" && !rescue && !crashSell && StatsFilterEnabled)
    {
+      // [S30] REGIME-GATED WR: when the promoted DB carries mkt_state and this fingerprint's cell in
+      // the CURRENT regime is thick enough, judge it on THAT win rate (SELL|HR_OVL|ATR_EXP: 81% DOWN
+      // = admitted / ~50% UP = blocked -- the data does both, no hand-coded rule). Thin cell -> fallback.
+      bool useState = (UseRegimeGate && nsS >= RegimeGateMinN);
+      double effWR  = useState ? wrS : wr;
       if(!known)                skip = "setupUnknown";
       else if(ns < MinSamples)  skip = "lowSamples(n="+IntegerToString(ns)+")";
-      else if(wr < MinWinRate)  skip = "lowWinRate("+DoubleToString(wr,2)+"<"+DoubleToString(MinWinRate,2)+")";
+      else if(effWR < MinWinRate)
+         skip = (useState ? "regimeWR("+mstate+" " : "lowWinRate(")
+                + DoubleToString(effWR,2)+"<"+DoubleToString(MinWinRate,2)+")";
    }
-   if(skip=="" && IsOverextended()) skip = "overextended";
+   if(skip=="" && !rescue && UseSignalStrengthGate)        // cut the weak signals (barely past the band)
+   {
+      double gmUp = (GM_UpperBand > 0) ? GM_UpperBand : (grisk + 67);
+      double gmLo = (GM_LowerBand > 0) ? GM_LowerBand : (33 - grisk);
+      double pen  = (dir==ORDER_TYPE_BUY) ? (wpr - gmUp) : (gmLo - wpr);   // penetration past the band
+      if(pen < SignalStrengthMin) skip = "weakSignal(pen="+DoubleToString(pen,1)+"<"+DoubleToString(SignalStrengthMin,1)+")";
+   }
+   if(skip=="" && !rescue && IsOverextended()) skip = "overextended";
    double szMult = LookupSizing(key);                      // 1.0 if table off; 0 = negative/unknown setup
-   if(skip=="" && UseSizingTable && szMult <= 0) skip = "sizingZero";
+   if(skip=="" && !rescue && !crashSell && UseSizingTable && szMult <= 0) skip = "sizingZero";  // hedge + crash-state legs bypass
    int maxB = (MaxConcurrentBaskets < 1) ? 1 : MaxConcurrentBaskets;
    int rescueSlots = (RescueMaxBaskets < 1) ? 1 : RescueMaxBaskets;
    int effMaxB = maxB + (rescue ? rescueSlots : 0);   // rescue earns up to N extra slots (fib C ramp)
    if(skip=="" && CountOpenBaskets() >= effMaxB) skip = "maxBaskets("+IntegerToString(effMaxB)+")";
-   if(skip=="" && UseSameDirBasketGate)
+   if(skip=="" && !rescue && UseSameDirBasketGate)
    {
       double sdF = SameDirFloat(dir);
       if(sdF <= -SameDirGateLossPct/100.0 * Bal_())
@@ -707,12 +1069,12 @@ void OnTick()
    }
 
    LogSignal(dir, key, wpr, adx, maAngle, bull, wr, ns,
-             (skip=="" ? (rescue ? "TRADE(rescue)" : "TRADE") : "SKIP:"+skip));
+             (skip=="" ? (rescue ? "TRADE(rescue)" : (crashSell ? "TRADE(crashSell)" : "TRADE")) : "SKIP:"+skip));
    if(skip != "") return;                                  // any failed gate -> no trade (same as before)
    if(rescue) Print("OPPOSITE-WHEN-DEEP: opening ", (dir==(int)ORDER_TYPE_BUY?"BUY":"SELL"),
                     " rescue basket (book float ", DoubleToString(PortfolioFloat(),2), ")");
 
-   g_clusterSizeMult = (szMult > 0) ? szMult : 1.0;
+   g_clusterSizeMult = (rescue || crashSell || szMult <= 0) ? 1.0 : szMult;   // hedge/crash-state legs open at base size
    if(UseSameDirTaper)
    {
       int nSD = CountSameDirBaskets(dir);
@@ -727,13 +1089,19 @@ void OnTick()
    int newBid = (maxB > 1) ? NextBasketId() : -1;          // tag baskets only in multi mode (single mode untagged = original path)
    g_clusterSetup = key;
    double lot;
-   if(UseRiskNormalizedLots) { lot = RiskNormalizedLot(0); if(lot < 0) return; }
-   else                       { lot = CalculateLot(0); }
+   int lotLevel = 0;
+   if(rideRamp) lotLevel = RescueRampByLegs ? CountSameDirLegs(dir) : CountSameDirBaskets(dir);   // fib C's overtake: each ride leg steps up the ladder ([S36] per LEG: baskets are always 1 in single mode)
+   if(UseRiskNormalizedLots) { lot = RiskNormalizedLot(lotLevel); if(lot < 0) return; }
+   else                       { lot = CalculateLot(lotLevel); }
    lot = NormalizeDouble(lot * g_clusterSizeMult, 2);      // per-setup bet sizing (1.0 when table off)
    double minLot = SymbolInfoDouble(_Symbol, SYMBOL_VOLUME_MIN);
    if(lot < minLot) lot = minLot;
-   OpenSimpleSLTP(dir, lot, key, newBid);
-   if(rescue) g_rescueDir = dir;              // arm the book-level rescue choreography (S24)
+   OpenSimpleSLTP(dir, lot, key, newBid, rideRamp);   // ride legs go naked (book-exit managed, fib C parity)
+   if(rescue)
+   {
+      if(g_rescueDir < 0){ g_srArmPrice = Bid_(); g_srExt = g_srArmPrice; g_srExtTime = TimeCurrent(); }  // [S31] fresh arm -> start state tracking
+      g_rescueDir = dir; g_rescuePeak = 0.0;   // arm the book-level rescue choreography (S24)
+   }
 }
 
 //+------------------------------------------------------------------+
@@ -765,6 +1133,23 @@ int CountSameDirBaskets(int dir)
    return n;
 }
 
+// [S36] ride LEGS in one direction (the PIN excluded -> the first signal leg is ladder step 0)
+int CountSameDirLegs(int dir)
+{
+   int n = 0;
+   for(int i=PositionsTotal()-1; i>=0; i--)
+   {
+      ulong tk = PositionGetTicket(i);
+      if(tk==0 || !PositionSelectByTicket(tk)) continue;
+      if(PositionGetInteger(POSITION_MAGIC) != MagicNumber) continue;
+      if(PositionGetString(POSITION_SYMBOL) != _Symbol) continue;
+      string cmt = PositionGetString(POSITION_COMMENT);
+      if(StringFind(cmt, "_HEDGE") >= 0 || StringFind(cmt, "_FRZ") >= 0 || StringFind(cmt, "_PIN") >= 0) continue;
+      if((int)PositionGetInteger(POSITION_TYPE) != dir) continue;
+      n++;
+   }
+   return n;
+}
 // combined float of this EA's basket legs in ONE direction (hedge legs excluded) --
 // the same-direction basket gate's measure of "is this side already deep?"
 double SameDirFloat(int dir)
@@ -782,6 +1167,22 @@ double SameDirFloat(int dir)
    }
    return f;
 }
+// total NON-HEDGE lots open in ONE direction -- sizes the loss-gated hedge to the losing exposure.
+double SameDirLots(int dir)
+{
+   double v = 0;
+   for(int i=PositionsTotal()-1; i>=0; i--)
+   {
+      ulong tk = PositionGetTicket(i);
+      if(tk==0 || !PositionSelectByTicket(tk)) continue;
+      if(PositionGetInteger(POSITION_MAGIC) != MagicNumber) continue;
+      if(PositionGetString(POSITION_SYMBOL) != _Symbol) continue;
+      if(StringFind(PositionGetString(POSITION_COMMENT), "_HEDGE") >= 0) continue;
+      if((int)PositionGetInteger(POSITION_TYPE) != dir) continue;
+      v += PositionGetDouble(POSITION_VOLUME);
+   }
+   return v;
+}
 double DollarPerPricePerLot()
 {
    double ts = SymbolInfoDouble(_Symbol, SYMBOL_TRADE_TICK_SIZE);
@@ -790,34 +1191,46 @@ double DollarPerPricePerLot()
 }
 
 // win-rate gate: read StatsCSVFile (shadow DB), count r_multiple>0 for setupKey. Robust to column count.
-bool LookupSetupStats(string setupKey, double &winRate, int &samples)
+// [S30] also returns the fingerprint's win rate IN curState (mkt_state column) when the DB
+// carries it; a DB without the column -> samplesState=0 -> callers fall back to all-regime.
+bool LookupSetupStats(string setupKey, double &winRate, int &samples,
+                      string curState, double &winRateState, int &samplesState)
 {
-   int fh = FileOpen(StatsCSVFile, FILE_READ|FILE_CSV|FILE_COMMON|FILE_ANSI, ',');
+   winRateState=0; samplesState=0;
+   int fh = FileOpen(StatsCSVFile, FILE_READ|FILE_SHARE_READ|FILE_SHARE_WRITE|FILE_CSV|FILE_COMMON|FILE_ANSI, ',');
    if(fh == INVALID_HANDLE) { winRate=0; samples=0; return false; }
-   int ncol=0, rIdx=-1;
-   while(!FileIsEnding(fh))                       // header row -> column count + r_multiple index
+   int ncol=0, rIdx=-1, sIdx=-1;
+   while(!FileIsEnding(fh))                       // header row -> column count + named indices
    {
       string c = FileReadString(fh);
       if(c == "r_multiple") rIdx = ncol;
+      if(c == "mkt_state")  sIdx = ncol;
       ncol++;
       if(FileIsLineEnding(fh)) break;
    }
    if(rIdx < 0 || ncol <= 0) { FileClose(fh); winRate=0; samples=0; return false; }
-   int wins=0, total=0;
+   int wins=0, total=0, winsS=0, totalS=0;
    while(!FileIsEnding(fh))
    {
-      string key=""; double r=0; bool any=false;
+      string key=""; double r=0; string st=""; bool any=false;
       for(int c=0; c<ncol && !FileIsEnding(fh); c++)
       {
          string cell = FileReadString(fh); any=true;
          if(c==0)    key = cell;
          if(c==rIdx) r   = StringToDouble(cell);
+         if(c==sIdx) st  = cell;
       }
       if(!any) break;
-      if(key == setupKey) { total++; if(r > 0) wins++; }
+      if(key == setupKey)
+      {
+         total++; if(r > 0) wins++;
+         if(sIdx >= 0 && st == curState) { totalS++; if(r > 0) winsS++; }
+      }
    }
    FileClose(fh);
    samples = total;
+   samplesState = totalS;
+   if(totalS > 0) winRateState = (double)winsS / (double)totalS;
    if(total == 0) { winRate=0; return false; }
    winRate = (double)wins / (double)total;
    return true;
@@ -828,7 +1241,7 @@ bool LookupSetupStats(string setupKey, double &winRate, int &samples)
 double LookupSizing(string setupKey)
 {
    if(!UseSizingTable) return 1.0;
-   int fh = FileOpen(SizingCSVFile, FILE_READ|FILE_CSV|FILE_COMMON|FILE_ANSI, ',');
+   int fh = FileOpen(SizingCSVFile, FILE_READ|FILE_SHARE_READ|FILE_SHARE_WRITE|FILE_CSV|FILE_COMMON|FILE_ANSI, ',');
    if(fh == INVALID_HANDLE) return 1.0;   // no table -> behave as flat (don't block trading)
    int ncol=0, mIdx=-1;
    while(!FileIsEnding(fh))
@@ -999,7 +1412,7 @@ void CloseBasket(int targetBid, string reason)
 }
 
 // open entry with SL/TP at the (possibly asymmetric) barrier distances
-void OpenSimpleSLTP(int dir, double lot, string setupKey, int bid=-1)
+void OpenSimpleSLTP(int dir, double lot, string setupKey, int bid=-1, bool naked=false)
 {
    double atrD1 = ReadBuf(hATR_D1,0,1);
    double um = (BarrierATRUpper > 0) ? BarrierATRUpper : BarrierATRMultiplier;  // target side
@@ -1010,6 +1423,7 @@ void OpenSimpleSLTP(int dir, double lot, string setupKey, int bid=-1)
    if(dir==ORDER_TYPE_BUY) { sl = price - dnDist; tp = price + upDist; }
    else                    { sl = price + dnDist; tp = price - upDist; }
    if(!UseEntrySL) sl = 0;   // no per-entry hard stop -> grid recovery + basket floor handle downside
+   if(naked) { sl = 0; tp = 0; }   // fib C parity: ride/hedge legs carry NO SL/TP -- the BOOK exit (+target/trail) manages them
    string cmt = CommentText + BasketTag(bid) + "_SLTP";
    bool ok = (dir==ORDER_TYPE_BUY) ? trade.Buy(lot,_Symbol,price,sl,tp,cmt)
                                    : trade.Sell(lot,_Symbol,price,sl,tp,cmt);
@@ -1071,6 +1485,81 @@ bool HadRecentSL(int hours)
    return false;
 }
 
+//--- [S35b] Friday BANK: bank the WHOLE book on Friday if it is green. Never realizes a red book,
+//    never leaves a naked leg (the defect that killed the per-leg version).
+void ManageFridayBank()
+{
+   if(!UseFridayBank) return;
+   MqlDateTime bdt; TimeToStruct(TimeCurrent(), bdt);
+   if(bdt.day_of_week != 5) return;
+   if(bdt.hour < FridayBankHour) return;
+   int n = 0;
+   for(int i=PositionsTotal()-1; i>=0; i--)
+   {
+      ulong tk = PositionGetTicket(i);
+      if(tk==0 || !PositionSelectByTicket(tk)) continue;
+      if(PositionGetInteger(POSITION_MAGIC) != MagicNumber) continue;
+      if(PositionGetString(POSITION_SYMBOL) != _Symbol) continue;
+      n++;
+   }
+   if(n == 0) return;
+   double bk = PortfolioFloat();
+   if(bk < FridayBankMinUSD) return;            // red or not green enough -> LEAVE IT ALONE
+   CloseEverything("FRIDAY BANK book +" + DoubleToString(bk,2));
+   g_peakBasketFloat = 0.0; g_rescueDir = -1; g_freezeDir = -1;
+}
+
+//--- [S35] Friday green-stop: protect PROFIT on Fridays, never realize a red leg. See the input block.
+void ManageFridayGreenStop()
+{
+   if(!UseFridayGreenStop) return;
+   MqlDateTime fdt; TimeToStruct(TimeCurrent(), fdt);
+   if(fdt.day_of_week != 5) return;                     // Friday only (server clock)
+   if(fdt.hour < FridayGuardHour) return;
+   if(g_rescueDir >= 0 || g_freezeDir >= 0) return;     // book-managed: never strip a leg
+
+   double atr = ReadBuf(hATR_D1, 0, 1);
+   if(atr <= 0) return;
+   double off      = FridayStopOffsetATR * atr;
+   double stopsLvl = (double)SymbolInfoInteger(_Symbol, SYMBOL_TRADE_STOPS_LEVEL) * point;
+   int    dgt      = (int)SymbolInfoInteger(_Symbol, SYMBOL_DIGITS);
+
+   for(int i=PositionsTotal()-1; i>=0; i--)
+   {
+      ulong tk = PositionGetTicket(i);
+      if(tk==0 || !PositionSelectByTicket(tk)) continue;
+      if(PositionGetInteger(POSITION_MAGIC) != MagicNumber) continue;
+      if(PositionGetString(POSITION_SYMBOL) != _Symbol) continue;
+      if(PositionGetDouble(POSITION_PROFIT) <= 0) continue;   // GREEN ONLY -- never cut a red leg
+      long   ptype = PositionGetInteger(POSITION_TYPE);
+      double op    = PositionGetDouble(POSITION_PRICE_OPEN);
+      double sl    = PositionGetDouble(POSITION_SL);
+      double tp    = PositionGetDouble(POSITION_TP);
+      double vol   = PositionGetDouble(POSITION_VOLUME);
+      double cur   = (ptype==POSITION_TYPE_BUY) ? Bid_() : Ask_();
+      double want;
+      if(ptype == POSITION_TYPE_BUY)
+      {
+         want = op + off;
+         if(FridayStopLockPct > 0) want = MathMax(want, op + FridayStopLockPct*(cur-op));
+         if(want >= cur - stopsLvl) continue;                 // too close to market to place
+         if(sl != 0 && sl >= want)  continue;                 // never loosen an existing stop
+      }
+      else
+      {
+         want = op - off;
+         if(FridayStopLockPct > 0) want = MathMin(want, op - FridayStopLockPct*(op-cur));
+         if(want <= cur + stopsLvl) continue;
+         if(sl != 0 && sl <= want)  continue;
+      }
+      want = NormalizeDouble(want, dgt);
+      if(trade.PositionModify(tk, want, tp))
+         PrintFormat("FRIDAY GREEN-STOP: #%I64u %s %.2f @ %.*f -> SL %.*f (locks +%.2f)",
+                     tk, (ptype==POSITION_TYPE_BUY ? "BUY" : "SELL"), vol, dgt, op, dgt, want,
+                     MathAbs(want-op) * vol * SymbolInfoDouble(_Symbol, SYMBOL_TRADE_CONTRACT_SIZE));
+   }
+}
+
 void ManageBreakEvenSL()
 {
    if(!UseBreakEvenSL) return;
@@ -1100,10 +1589,251 @@ void ManageBreakEvenSL()
 // Dispatcher: single pool (default = gold/silver path, UNCHANGED) or per-basket
 // loop when MaxConcurrentBaskets>1 (lets new signals open their own basket so one
 // stuck basket can't starve 200+ signals -- no time/hard stops involved).
+//--- [S33 2026-08-26] FREEZE HEDGE extracted from the multi-basket path so SINGLE-BASKET engines
+//    (gold/silver run MaxConcurrentBaskets=1) can use it too. Before this, ManageGrid delegated to
+//    ManageOneBasket and RETURNED before reaching the freeze code, so the freeze was structurally
+//    unreachable on gold at ANY trigger (8/5/3%% byte-identical, zero FREEZE lines -- journal-verified).
+//    Body = the 07-29 block VERBATIM; its two bare returns become `return true` = frozen, stop managing.
+//    Guarded by UseFreezeHedge -> OFF = byte-identical everywhere.
+bool ManageFreezeHedge()
+{
+   if(!(UseFreezeHedge && RescueOnDrawdownPct > 0)) return false;
+   // ---- FREEZE HEDGE (2026-07-29): neutralize 1:1 (tag _FRZ), HOLD flat, RELEASE the hedge legs on a
+   //      confirmed bounce (FreezeReleaseATR x ATR(D1) off the adverse extreme) so the recovering side
+   //      runs home. Never net-directional -> nothing to crush. Book-exit at +target still applies while frozen.
+      double px = Bid_();
+      if(PortfolioFloat() >= 0) g_freezeAnchor = 0.0;   // episode over (book healthy) -> reset the anti-churn anchor
+      if(g_freezeDir < 0 && PortfolioFloat() <= -RescueOnDrawdownPct/100.0 * Bal_())
+      {
+         int loseDir  = (SameDirFloat(ORDER_TYPE_BUY) <= SameDirFloat(ORDER_TYPE_SELL)) ? (int)ORDER_TYPE_BUY : (int)ORDER_TYPE_SELL;
+         int hedgeDir = (loseDir == (int)ORDER_TYPE_BUY) ? (int)ORDER_TYPE_SELL : (int)ORDER_TYPE_BUY;
+         // anti-churn: after a release, only RE-freeze if price makes a NEW adverse extreme beyond the last episode's
+         bool newExtreme = (g_freezeAnchor == 0.0) ||
+                           (loseDir == (int)ORDER_TYPE_BUY ? px < g_freezeAnchor : px > g_freezeAnchor);
+         double need  = SameDirLots(loseDir) - SameDirLots(hedgeDir);   // 1:1 neutralize the net exposure
+         if(need > 0 && newExtreme)
+         {
+            double minLot = SymbolInfoDouble(_Symbol, SYMBOL_VOLUME_MIN);
+            double hlot = NormalizeDouble(need, 2); if(hlot < minLot) hlot = minLot;
+            string cmt = CommentText + "_FRZ";
+            bool ok = (hedgeDir==ORDER_TYPE_BUY) ? trade.Buy(hlot,_Symbol,Ask_(),0,0,cmt)
+                                                 : trade.Sell(hlot,_Symbol,px,0,0,cmt);
+            if(ok)
+            {
+               g_freezeDir = loseDir; g_freezeExtreme = px; g_freezeExtremeTime = TimeCurrent();
+               Print("FREEZE HEDGE: ", (hedgeDir==ORDER_TYPE_BUY?"BUY":"SELL"), " ", DoubleToString(hlot,2),
+                     " lots 1:1 (book ", DoubleToString(PortfolioFloat(),2), " frozen; release on ",
+                     DoubleToString(FreezeReleaseATR,1), "xATR bounce)");
+            }
+         }
+      }
+      else if(g_freezeDir >= 0)
+      {
+         double atrD1f = ReadBuf(hATR_D1,0,1);
+         bool bounce = false;
+         if(g_freezeDir == (int)ORDER_TYPE_BUY)        // frozen LONGS: extreme = the low; release on a bounce UP
+         { if(px < g_freezeExtreme) { g_freezeExtreme = px; g_freezeExtremeTime = TimeCurrent(); } bounce = (px >= g_freezeExtreme + FreezeReleaseATR*atrD1f); }
+         else                                          // frozen SHORTS: extreme = the high; release on a fall back
+         { if(px > g_freezeExtreme) { g_freezeExtreme = px; g_freezeExtremeTime = TimeCurrent(); } bounce = (px <= g_freezeExtreme - FreezeReleaseATR*atrD1f); }
+         if(FreezeReleaseMode == 1 && atrD1f > 0)     // [S34] EXHAUSTION release: the adverse move must be measurably dead
+         {
+            double fzPull  = MathAbs(px - g_freezeExtreme) / atrD1f;                 // pulled back off the adverse extreme
+            double fzStale = (double)(TimeCurrent() - g_freezeExtremeTime) / 3600.0;  // hours since a new adverse extreme
+            bounce = (fzPull >= SR_PullATR && fzStale >= SR_StaleHours);
+         }
+
+         if(PortfolioFloat() >= RescueBookTargetUSD)   // whole book green while frozen -> bank it all
+         {
+            CloseEverything("FREEZE BOOK EXIT +" + DoubleToString(PortfolioFloat(),2));
+            g_freezeDir = -1; g_freezeAnchor = 0.0; g_peakBasketFloat = 0.0;
+            return true;
+         }
+         if(bounce)                                     // confirmed reversal -> release the hedge, let the book recover
+         {
+            for(int i=PositionsTotal()-1; i>=0; i--)
+            {
+               ulong tk = PositionGetTicket(i);
+               if(tk==0 || !PositionSelectByTicket(tk)) continue;
+               if(PositionGetInteger(POSITION_MAGIC) != MagicNumber) continue;
+               if(PositionGetString(POSITION_SYMBOL) != _Symbol) continue;
+               if(StringFind(PositionGetString(POSITION_COMMENT), "_FRZ") < 0) continue;
+               trade.PositionClose(tk);
+            }
+            Print("FREEZE RELEASED on bounce (extreme ", DoubleToString(g_freezeExtreme,2),
+                  " -> ", DoubleToString(px,2), "); book recovers unhedged");
+            g_freezeAnchor = g_freezeExtreme;   // anti-churn: re-freeze only beyond this
+            g_freezeDir = -1;
+         }
+         if(g_freezeDir >= 0) return true;              // frozen: no other book management this tick
+      }
+   return false;
+}
+
+//--- [S36b 2026-09-03] RESCUE BOOK MANAGER hoisted out of the multi-basket path. The 09-03 autopsy found
+//    the SAME structural gate S33 found for the freeze: ManageGrid delegates to ManageOneBasket and RETURNS
+//    when MaxConcurrentBaskets<=1, so on gold/silver the tick-arm (S27), deepest tracking, the +target/trail
+//    book exit (S24) and the state-release (S31) were ALL unreachable -- the demo's 09-03 rescue closed on the
+//    ordinary +ProfitTargetUSD basket exit and HRES5T/HPIN3 ran byte-identical to their controls. Body = the
+//    block VERBATIM (bare returns -> return true = book closed, stop managing). Multi-basket path calls it
+//    unconditionally (unchanged behaviour); the single-basket path only when RescueBookSingle=true (default
+//    OFF -> every locked EA byte-identical).
+bool ManageRescueBook()
+{
+   // ---- [sub-8] TICK-ARM + deepest tracking (2026-08-07, the C1 sweep-cliff re-engineering).
+   // fib C parity: fib C evaluates its trigger EVERY TICK; the signal-path sampling let gold blow
+   // through the 3-7% band between signals (all sub-8 configs armed at the same signal = the cliff).
+   if((g_rescueDir >= 0 || g_rideArm))
+      { double pfD = PortfolioFloat(); if(pfD < g_rescueDeepest) g_rescueDeepest = pfD; }
+   if(RescueTickArm && RescueOnDrawdownPct > 0 && !UseFreezeHedge)
+   {
+      double pfT = PortfolioFloat();
+      if(!g_rideArm && g_rescueDir < 0 && TimeCurrent() >= g_rescueCooldownUntil &&
+         pfT <= -RescueOnDrawdownPct/100.0 * Bal_())
+      {
+         g_rideArm = true; g_rescueDeepest = pfT;
+         Print("RESCUE TICK-ARM: book ", DoubleToString(pfT,2));
+         if(RescueImmediateLeg)
+         {
+            // [S36] PIN: neutralize the book at the arm, no signal needed, any hour. The ride's fib ramp
+            // then overtakes on the signal path (rescue=true while g_rescueDir>=0).
+            int pinLose  = (SameDirFloat(ORDER_TYPE_BUY) <= SameDirFloat(ORDER_TYPE_SELL)) ? (int)ORDER_TYPE_BUY : (int)ORDER_TYPE_SELL;
+            int pinHedge = (pinLose == (int)ORDER_TYPE_BUY) ? (int)ORDER_TYPE_SELL : (int)ORDER_TYPE_BUY;
+            double pinNeed = SameDirLots(pinLose) * RescueImmediateRatio - SameDirLots(pinHedge);
+            double pinMin  = SymbolInfoDouble(_Symbol, SYMBOL_VOLUME_MIN);
+            if(pinNeed >= pinMin)
+            {
+               double pinLot = NormalizeDouble(pinNeed, 2);
+               string pinCmt = CommentText + "_PIN";
+               bool pinOk = (pinHedge==ORDER_TYPE_BUY) ? trade.Buy(pinLot,_Symbol,Ask_(),0,0,pinCmt)
+                                                       : trade.Sell(pinLot,_Symbol,Bid_(),0,0,pinCmt);
+               if(pinOk)
+               {
+                  g_srArmPrice = Bid_(); g_srExt = g_srArmPrice; g_srExtTime = TimeCurrent();   // [S31] state tracking from the pin
+                  g_rescueDir = pinHedge; g_rescuePeak = 0.0;   // choreography live NOW: stop feeding the loser, book exit armed
+                  Print("RESCUE PIN: ", (pinHedge==ORDER_TYPE_BUY?"BUY":"SELL"), " ", DoubleToString(pinLot,2),
+                        " lots x", DoubleToString(RescueImmediateRatio,2), " (book ", DoubleToString(pfT,2),
+                        " pinned at arm; ride ramps on signals)");
+               }
+               else Print("RESCUE PIN failed err=", trade.ResultRetcode());
+            }
+         }
+      }
+      else if(g_rideArm && g_rescueDir < 0 && pfT >= 0)   // self-recovered before any ride leg -> clean disarm
+      {
+         g_rideArm = false; g_rescueDeepest = 0.0;
+         g_rescueCooldownUntil = (datetime)(TimeCurrent() + (long)RescueRearmCooldownBars * PeriodSeconds(PERIOD_CURRENT));
+         Print("RESCUE TICK-DISARM: book self-recovered before a ride leg");
+      }
+   }
+
+   // ---- RESCUE BOOK EXIT (S24, fib C's RecoveryTargetUSD): while a rescue basket is open,
+   // close the WHOLE book (losers + rescue) together once combined float reaches the target.
+   // (guard is g_rescueDir>=0 alone -- it's armed only by a rescue path, signal-gated OR loss-gated)
+   if(g_rescueDir >= 0)
+   {
+      // [sub-8] exit target scaled to the book being rescued: flat $40 on an 8-11-leg book = crumbs
+      double effTgt = RescueBookTargetUSD;
+      if(RescueTargetPctDeepest > 0 && g_rescueDeepest < 0)
+         effTgt = MathMax(effTgt, (RescueTargetPctDeepest/100.0) * (-g_rescueDeepest));
+      if(CountSameDirBaskets(g_rescueDir) == 0)
+      {
+         g_rescueDir = -1; g_rescuePeak = 0.0;                 // rescue basket(s) gone -> disarm
+         g_rideArm = false; g_rescueDeepest = 0.0;
+         g_rescueCooldownUntil = (datetime)(TimeCurrent() + (long)RescueRearmCooldownBars * PeriodSeconds(PERIOD_CURRENT));
+      }
+      else if(RescueBookTargetUSD > 0 && PortfolioFloat() >= effTgt)
+      {
+         double pf = PortfolioFloat();
+         if(RescueBookTrailPct > 0)                            // TRAIL: ride the move, bank near the bottom
+         {
+            if(pf > g_rescuePeak) g_rescuePeak = pf;           // track the book's peak profit
+            if(pf <= g_rescuePeak * (1.0 - RescueBookTrailPct/100.0))
+            {
+               CloseEverything("RESCUE TRAIL EXIT +" + DoubleToString(pf,2) + " (peak +" + DoubleToString(g_rescuePeak,2) + ", tgt " + DoubleToString(effTgt,0) + ")");
+               g_rescueDir = -1; g_rescuePeak = 0.0; g_peakBasketFloat = 0.0;
+               g_rideArm = false; g_rescueDeepest = 0.0;
+               g_rescueCooldownUntil = (datetime)(TimeCurrent() + (long)RescueRearmCooldownBars * PeriodSeconds(PERIOD_CURRENT));
+               return true;
+            }
+         }
+         else                                                 // fixed target (original behaviour)
+         {
+            CloseEverything("RESCUE BOOK EXIT +" + DoubleToString(pf,2));
+            g_rescueDir = -1; g_rescuePeak = 0.0; g_peakBasketFloat = 0.0;
+            g_rideArm = false; g_rescueDeepest = 0.0;
+            g_rescueCooldownUntil = (datetime)(TimeCurrent() + (long)RescueRearmCooldownBars * PeriodSeconds(PERIOD_CURRENT));
+            return true;
+         }
+      }
+      // ---- [S31] STATE-RELEASE (fib C build P port): while the ride is live and the trail has not
+      // armed, track the ride's post-arm extreme; at the first bad state, realize the whole book --
+      // but ONLY while the loss is still small. Deep books ride on; the floor stays the backstop.
+      else if(UseStateRelease && g_rescuePeak <= 0.0)
+      {
+         int srSign = (g_rescueDir == ORDER_TYPE_BUY) ? 1 : -1;
+         double srPx = Bid_();
+         if(g_srArmPrice <= 0){ g_srArmPrice = srPx; g_srExt = srPx; g_srExtTime = TimeCurrent(); }  // restart-mid-rescue fallback
+         if((srPx - g_srExt) * srSign > 0){ g_srExt = srPx; g_srExtTime = TimeCurrent(); }
+         double srAtr = ReadBuf(hATR_D1, 0, 1);
+         if(srAtr > 0)
+         {
+            double srPull  = (g_srExt - srPx) * srSign / srAtr;
+            double srPos   = (srPx - g_srArmPrice) * srSign / srAtr;
+            double srStale = (double)(TimeCurrent() - g_srExtTime) / 3600.0;
+            bool srBad = (srPull >= SR_PullATR && srStale >= SR_StaleHours) ||
+                         (SR_UsePosLeg && srPos <= 0.0 && srPull >= SR_PullATR);
+            double pfNow = PortfolioFloat();
+            if(srBad && (StateReleaseMinMark >= 0.0 || pfNow >= StateReleaseMinMark))
+            {
+               CloseEverything("STATE RELEASE " + DoubleToString(pfNow,2) + " (pull " + DoubleToString(srPull,2) +
+                               " stale " + DoubleToString(srStale,1) + "h pos " + DoubleToString(srPos,2) + ")");
+               g_rescueDir = -1; g_rescuePeak = 0.0; g_peakBasketFloat = 0.0;
+               g_rideArm = false; g_rescueDeepest = 0.0;
+               g_srArmPrice = 0; g_srExt = 0; g_srExtTime = 0;
+               g_rescueCooldownUntil = (datetime)(TimeCurrent() + (long)RescueRearmCooldownBars * PeriodSeconds(PERIOD_CURRENT));
+               return true;
+            }
+         }
+      }
+   }
+
+   return false;
+}
+
 void ManageGrid()
 {
    int maxB = (MaxConcurrentBaskets < 1) ? 1 : MaxConcurrentBaskets;
-   if(maxB <= 1) { ManageOneBasket(-1); return; }   // untagged single pool = original behaviour, byte-for-byte
+   if(maxB <= 1)
+   {
+      if(ManageFreezeHedge()) return;              // [S33] gold/silver get the freeze organ too (OFF -> unchanged)
+      if(RescueBookSingle && ManageRescueBook()) return;   // [S36b] tick-arm / pin / book-exit / state-release for single-basket engines (OFF -> unchanged)
+      ManageOneBasket(-1); return;                 // untagged single pool = original behaviour, byte-for-byte
+   }
+
+   // ---- [S32] EPISODE TIME-CAP: whatever the book's shape, realize it at day N -- the
+   // priced smoother (no multi-week sits; the floor still binds first on fast disasters).
+   if(MaxEpisodeDays > 0)
+   {
+      datetime oldest = 0;
+      for(int ti=PositionsTotal()-1; ti>=0; ti--)
+      {
+         ulong ttk = PositionGetTicket(ti);
+         if(ttk==0 || !PositionSelectByTicket(ttk)) continue;
+         if(PositionGetInteger(POSITION_MAGIC) != MagicNumber) continue;
+         if(PositionGetString(POSITION_SYMBOL) != _Symbol) continue;
+         datetime ot = (datetime)PositionGetInteger(POSITION_TIME);
+         if(oldest == 0 || ot < oldest) oldest = ot;
+      }
+      if(oldest > 0 && (double)(TimeCurrent() - oldest) >= MaxEpisodeDays * 86400.0)
+      {
+         CloseEverything("EPISODE TIMECAP day " + DoubleToString((double)(TimeCurrent()-oldest)/86400.0,1) +
+                         " book " + DoubleToString(PortfolioFloat(),2));
+         g_peakBasketFloat = 0.0;
+         g_rescueDir = -1; g_rescuePeak = 0.0; g_rideArm = false; g_rescueDeepest = 0.0;
+         g_freezeDir = -1;
+         return;
+      }
+   }
 
    // portfolio-level catastrophe floor: cap TOTAL float across all baskets so concurrency
    // can't multiply tail risk. (single-basket case is already covered by the per-basket floor.)
@@ -1144,19 +1874,18 @@ void ManageGrid()
       }
    }
 
-   // ---- RESCUE BOOK EXIT (S24, fib C's RecoveryTargetUSD): while a rescue basket is open,
-   // close the WHOLE book (losers + rescue) together once combined float reaches the target.
-   if(AllowOppositeWhenDeep && g_rescueDir >= 0)
-   {
-      if(CountSameDirBaskets(g_rescueDir) == 0)
-         g_rescueDir = -1;                                   // rescue basket(s) gone -> disarm
-      else if(RescueBookTargetUSD > 0 && PortfolioFloat() >= RescueBookTargetUSD)
-      {
-         CloseEverything("RESCUE BOOK EXIT +" + DoubleToString(PortfolioFloat(),2));
-         g_rescueDir = -1; g_peakBasketFloat = 0.0;
-         return;
-      }
-   }
+   // ---- RECOVERY HEDGE is now SIGNAL-DRIVEN (2026-07-29, user's fib-C mechanism): the ENTRY function
+   //      rides the NEW TREND (opposite the losing side) on EVERY Goldminer signal while the book is in DD,
+   //      growing the hedge progressively (a leg per signal, capped at RescueMaxBaskets) until it recovers
+   //      to +RescueBookTargetUSD. The old ONE-SHOT mechanical overtake at the trigger was REMOVED -- a
+   //      single static short can't hold a moving trend and whipsaws on every bounce (proven: floor-off
+   //      run drew down 46% / -$2,442). RescueHedgeRatio now unused (kept as an input for back-compat).
+   //      (Signal-ride itself then FAILED harder -- 65% DD -- oil's drawdowns are REVERSIONS, any net-
+   //      directional hedge is crushed on the bounce -> the FREEZE below is the non-directional answer.)
+
+   if(ManageFreezeHedge()) return;   // [S33] freeze (multi-basket path, unchanged position)
+
+   if(ManageRescueBook()) return;   // [S36b] rescue book manager (multi-basket path, unchanged behaviour)
 
    int ids[]; int n = CollectBaskets(ids);
    for(int k=0; k<n; k++) ManageOneBasket(ids[k]);
@@ -1212,7 +1941,8 @@ void ManageOneBasket(int targetBid)
    // closer, floor pushes away, survival odds rise) for the price of one realized leg.
    // At most one cut per bar (global guard); the realized loss deepens neither float
    // nor trigger, so the mechanism self-hysteresis on the lightened basket.
-   if(UseStagedFloor && nLevels >= 2 && iTime(_Symbol, PERIOD_CURRENT, 0) != g_lastStageBar &&
+   if(UseStagedFloor && !(RescueSuspendsStaged && (g_rescueDir >= 0 || g_rideArm)) &&   // [S36] no amputation mid-treatment
+      nLevels >= 2 && iTime(_Symbol, PERIOD_CURRENT, 0) != g_lastStageBar &&
       combinedFloat <= -StagedFloorPct/100.0 * Bal_())
    {
       ulong worstTicket = 0; double worstPnl = 0;
@@ -1324,7 +2054,7 @@ void ManageOneBasket(int targetBid)
          if(addNow)
          {
             // rescue choreography (S24): stop FEEDING the losing side while a rescue basket rides
-            if(AllowOppositeWhenDeep && g_rescueDir >= 0 && (int)initialDir != g_rescueDir) return;
+            if(g_rescueDir >= 0 && (int)initialDir != g_rescueDir) return;  // stop feeding the loser (signal- OR loss-gated rescue)
             double currentTotalLots = basketLots + hedgeLots;
             double rawGridLot = UseRiskNormalizedLots ? RiskNormalizedLot(nLevels) : CalculateLot(nLevels);
             if(rawGridLot < 0) return;
