@@ -237,7 +237,11 @@ def transform(src, tag, values):
             out.append(f"const {typ} {name}{pad}= {val};{tail}  // CELL-LOCKED")
             continue
         if '#define' in ln and 'EA_BUILD_VERSION' in ln:
-            out.append(f'#define EA_BUILD_VERSION "GS-CELL-{tag.replace(" ","-")}-2026-07-14"')
+            # 2026-09-04: stamp = master build + generation date, so a regenerated cell is DISTINGUISHABLE
+            # from its predecessor (running-vs-disk check ⑥ needs it; the fixed 07-14 stamp hid the S36d gap)
+            mb = re.search(r'EA_BUILD_VERSION\s+"MT5-(\d{4}-\d\d-\d\d)-(S\d+)', src)
+            stamp = (mb.group(2) + "-" + __import__("datetime").date.today().strftime("%Y-%m-%d")) if mb else "2026-07-14"
+            out.append(f'#define EA_BUILD_VERSION "GS-CELL-{tag.replace(" ","-")}-{stamp}"')
             continue
         out.append(ln)
     missing = set(values) - seen
