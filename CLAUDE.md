@@ -465,6 +465,7 @@
 2. **Test actual artifact files**, not just code logic — before declaring anything working, verify the CSV/JSON files contain what the code claims.
 3. **Read both EA files before changing config** — the MQL4 logic is the ground truth. Python must mirror it, not contradict it.
 4. **Do not change magic numbers** without checking the MT4 EA and the MT5 system (magic 30032026) — they must never overlap.
+6. **NO HOLES (user, 2026-09-04): a change is not done until its own proof exists.** A deploy is done when the RUNNING instance has printed the new build stamp (a CLI compile never hot-reloads an attached EA — verify the Experts banner, then run `python framework_check.py`, check ⑥). A bench result exists only after the run's own log proves login + history-to-window-end + the tick quality the claim needs (`rolling_retest` refuses to publish otherwise; every headless chain must print quality). A new magic / EA / account / file is registered in the monitors in the SAME change that creates it, then `framework_check.py` must pass. Every new check gets a negative test in the same session. Say "verified" only for what a log line showed; say "on disk" otherwise.
 5. **Always edit EA files in the live MT4 folder** — `C:\Users\mariu\AppData\Roaming\MetaQuotes\Terminal\98A82F92176B73A2100FCD1F8ABD7255\MQL4\Experts\`. After editing, keep `ea\` in sync as a backup copy.
 
 ---
