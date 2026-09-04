@@ -20,7 +20,7 @@ Schedule: task "GridStat Rolling Retest", Saturdays 09:00.
 Guardrail: DETECT AND QUEUE — a DEGRADED verdict is a morning-brief decision item,
 never an auto-adjustment (20-close doctrine stands).
 """
-import os, io, re, csv, sys, time, subprocess, statistics
+import os, io, re, csv, sys, time, glob, subprocess, statistics
 from datetime import datetime, timedelta
 
 try:
@@ -121,6 +121,26 @@ def run_job(name, cfg):
     except subprocess.TimeoutExpired:
         print(f"[{name}] !! tester timeout"); return None
     elapsed = time.time() - t0
+    # ---- BENCH PRECONDITIONS (2026-09-04, "stop building code with holes"): a row is published ONLY if
+    #      this run's own tester log proves (a) the login succeeded and (b) the synced history reaches the
+    #      window's last closed day. The 08-31->09-03 incident published four days of rows on a dead login.
+    try:
+        tlogs = sorted(glob.glob(os.path.join(RUNNER_DATA, "Tester", "logs", "*.log")), key=os.path.getmtime)
+        ttxt = io.open(tlogs[-1], encoding="utf-16", errors="replace").read() if tlogs else ""
+        seg = ttxt[ttxt.rfind("expert file added: Experts\\" + cfg["expert"] + ".ex5"):] if ttxt else ""
+        syncs = re.findall(r"history synchronized from \S+ to (\d{4}\.\d\d\.\d\d)", seg)
+        term_logs = sorted(glob.glob(os.path.join(RUNNER_DATA, "logs", "*.log")), key=os.path.getmtime)
+        term_txt = io.open(term_logs[-1], encoding="utf-16", errors="replace").read() if term_logs else ""
+        bad_login = "Invalid account" in term_txt[-20000:]
+        stale = (not syncs) or (syncs[-1] < (datetime.now() - timedelta(days=4)).strftime("%Y.%m.%d"))
+        if bad_login or stale:
+            alert(f"ROLLING RE-TEST [{name}] VOID: " + ("runner login REFUSED; " if bad_login else "") +
+                  (f"history synced only to {syncs[-1] if syncs else 'unknown'}; " if stale else "") +
+                  "no row written -- a stale bench must not publish.", "RED")
+            print(f"[{name}] !! VOID (login={'bad' if bad_login else 'ok'}, synced_to={syncs[-1] if syncs else '?'})")
+            return None
+    except Exception as e:
+        print(f"[{name}] !! precondition check errored: {e} -- refusing to publish"); return None
     # report lands in the runner data dir -- and must be NEWER than this run
     for rp in report_paths(report):
         if os.path.exists(rp) and os.path.getmtime(rp) >= t0 - 2:
