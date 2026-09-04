@@ -2,7 +2,7 @@
 """
 GridStat live PERFORMANCE dashboard (priority C).
 Pulls the live MT5 deal history via the Python API, splits by magic number
-(GOLD/SILVER/OILCash), attributes by the POSITION's opening magic (so manual
+(GOLD/SILVER/OIL), attributes by the POSITION's opening magic (so manual
 closes still credit the right EA), and reports:
   - per-stream realized P&L / win% / PF / max DD
   - EXPECTED (validated backtest) vs LIVE  <-- the reference frame
@@ -29,7 +29,9 @@ try:
 except Exception:
     ss = None
 
-MAGICS = {57502: "GOLD", 59917: "SILVER", 62092: "OILCash", 3168: "fibC-GOLD"}
+# LIVE Pepperstone 51511633 magics (PEP symbol names -> different magics than the old XM demo)
+MAGICS = {59955: "GOLD", 59801: "SILVER", 77180: "OIL", 4901: "fibC-GOLD", 909090: "BOOKGUARD"}   # 2026-09-01: OIL was 66705 (retired RSQ2)
+LIVE_TERMINAL = r"C:\Program Files\Pepperstone MetaTrader 5\terminal64.exe"
 START  = datetime(2025, 1, 1)
 
 # validated backtest baselines (Dec2025-Jun2026 ~6.6mo locked configs; CLAUDE.md).
@@ -37,18 +39,24 @@ START  = datetime(2025, 1, 1)
 EXPECTED = {
     "GOLD":    dict(pf=3.92, dd_pct=20.2, win=0.76, tr_mo=24),
     "SILVER":  dict(pf=2.60, dd_pct=8.7,  win=0.69, tr_mo=11),
-    "OILCash": dict(pf=2.29, dd_pct=14.9, win=0.86, tr_mo=22),
+    "OIL": dict(pf=2.29, dd_pct=14.9, win=0.86, tr_mo=22),
     # fib C MT5 locked config (cap=3, 2.5yr GOLD backtest): PF 1.72 / 14.5% DD / ~60% leg-win / ~26 leg-closes per mo
     "fibC-GOLD": dict(pf=1.72, dd_pct=14.5, win=0.60, tr_mo=26),
 }
 
+LIVE_LOGIN = 51511633   # Pepperstone live; guard against attaching to a stray XM terminal
+
 def connect():
-    for _ in range(3):
-        if mt5.initialize() and mt5.account_info() is not None:
-            return True
+    for _ in range(6):
+        mt5.shutdown()                                  # drop any stale attachment (e.g. an XM terminal)
+        if mt5.initialize(path=LIVE_TERMINAL):
+            ai = mt5.account_info()
+            if ai and ai.login == LIVE_LOGIN:
+                return True
         time.sleep(1)
-    print("MT5 not connected:", mt5.last_error(),
-          "\n  -> open the MetaTrader 5 terminal and log into the account first.")
+    ai = mt5.account_info()
+    print(f"MT5 on WRONG account ({ai.login if ai else None}); expected {LIVE_LOGIN} (Pepperstone live)."
+          "\n  -> ensure the Pepperstone LIVE terminal is running (close stray XM terminals if it won't attach).")
     return False
 
 def stream_label(magic):
@@ -70,7 +78,7 @@ def metrics(closes):
 def generate(refresh_sec, write=True):
     ai = mt5.account_info()
     if ai is None:                              # terminal dropped / not logged in
-        mt5.initialize(); ai = mt5.account_info()
+        mt5.initialize(path=LIVE_TERMINAL); ai = mt5.account_info()
     if ai is None:
         msg = ("MT5 not connected - open the MetaTrader 5 terminal, log into the account, "
                "and keep it running. (account_info() returned None)")
@@ -103,12 +111,12 @@ def generate(refresh_sec, write=True):
         t = datetime.fromtimestamp(d.time); pnl = d.profit + d.commission + d.swap
         per[lbl].append((t, pnl)); daily[lbl][t.date()] += pnl
 
-    order = [l for l in ("GOLD", "SILVER", "OILCash", "MANUAL") if l in per] + \
-            [l for l in per if l not in ("GOLD", "SILVER", "OILCash", "MANUAL")]
+    order = [l for l in ("GOLD", "SILVER", "OIL", "MANUAL") if l in per] + \
+            [l for l in per if l not in ("GOLD", "SILVER", "OIL", "MANUAL")]
     M = {l: metrics(per[l]) for l in order}
     days_live = max(1, (datetime.now() - first_trade).days) if first_trade else 1
 
-    ea = [l for l in ("GOLD", "SILVER", "OILCash", "fibC-GOLD") if l in per]
+    ea = [l for l in ("GOLD", "SILVER", "OIL", "fibC-GOLD") if l in per]
     comb = metrics(sorted([c for l in ea for c in per[l]], key=lambda x: x[0]))
     sum_dd = sum(M[l]["maxdd"] for l in ea)
     div = (sum_dd / comb["maxdd"]) if comb["maxdd"] > 0 else 0.0
@@ -210,7 +218,7 @@ def generate(refresh_sec, write=True):
 
     # expected vs live
     ev_rows = ""
-    for l in ("GOLD", "SILVER", "OILCash", "fibC-GOLD"):
+    for l in ("GOLD", "SILVER", "OIL", "fibC-GOLD"):
         e = EXPECTED[l]; m = M.get(l, dict(n=0, win=0, pf=0))
         live_tr_mo = (m["n"] / days_live * 30) if m["n"] else 0
         thin = m["n"] < 10
@@ -276,7 +284,7 @@ td:first-child,th:first-child{{text-align:left}} th{{background:#f0f0f0}}
             fp.write(out)
         print(f"[{now}] {ai.login} bal {f(ai.balance)} eq {f(ai.equity)} open {len(pos)} | "
               f"book {days_live}d | EA net {f(comb['net'])}")
-        for l in ("GOLD", "SILVER", "OILCash", "fibC-GOLD"):
+        for l in ("GOLD", "SILVER", "OIL", "fibC-GOLD"):
             m = M.get(l, dict(n=0, net=0, win=0, pf=0)); e = EXPECTED[l]
             live_mo = (m['n']/days_live*30) if m['n'] else 0
             print(f"   {l:>8}: live {m['n']:>2} tr ({live_mo:>4.0f}/mo vs exp {e['tr_mo']}/mo)  net {m['net']:>8.2f}")
