@@ -255,7 +255,7 @@ TERMINAL_DATA = {
     "DEMO": r"C:\Users\mariu\AppData\Roaming\MetaQuotes\Terminal\C54C4DDE98E7B1FB905AFE04A9333631",
 }
 WATCH_EAS = {   # EA file name -> attached on which terminals (the book as deployed)
-    "GOLD HPIN12VG5": ("LIVE", "DEON"),
+    "GOLD HPIN12": ("LIVE", "DEON"),      # 2026-09-04 15:08 swap (velocity guard rejected on the PEP full curve)
     "Marius GridStat MT5 OIL SOLID LOCKED": ("LIVE", "DEON", "DEMO"),
     "Marius GridStat MT5 GOLD LOCKED": ("DEMO",),
     "GOLD DAYRANK": ("DEMO",),
@@ -332,7 +332,9 @@ def check_guard_shape():
         for lg in sorted(glob.glob(os.path.join(data, "logs", "*.log")))[-3:]:
             for line in _read16(lg).splitlines():
                 m = re.search(r"expert (" + re.escape(GUARD_EA) + r" \([^)]*\)) (loaded successfully|removed)", line)
-                if m: live[m.group(1)] = 1 if m.group(2) == "loaded successfully" else 0
+                # key by SYMBOL, not (symbol,period): a chart timeframe change re-inits the EA with a new period
+                # and NO journal removed/loaded pair (MAIN 11:52 H1->M5 read as two instances)
+                if m: live[re.sub(r",[A-Z0-9]+\)", ")", m.group(1))] = 1 if m.group(2) == "loaded successfully" else 0
         n = sum(live.values())
         check(f"{term} exactly one guard instance", n == 1, f"{n} live: {[k for k, v in live.items() if v]}")
         src = os.path.join(data, "MQL5", "Experts", GUARD_EA + ".mq5")
