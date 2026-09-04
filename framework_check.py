@@ -307,6 +307,43 @@ def check_bench_freshness():
     else:
         check("runner history sync line found", False, "no 'history synchronized' line in the latest tester log")
 
+# ---- (8) BOOK GUARD SHAPE (2026-09-04, user: "the 8 will bite us"): the guard's daily cap must sit ABOVE the gold
+#      engine's pin/ride band (12%) with freeze-on-trip, or the guard amputates the treatment it was reordered
+#      behind (the 09-03 double trip). The source default was 8/flatten -> any fresh attach silently regressed.
+#      Reads the RUNNING instance's own CONFIG line (latest init wins) + counts instances from the journal.
+GUARD_EA = "Marius Book Guard v2"
+GUARD_MIN_DAILY_PCT = 12.0     # the gold pin line; the cap must be strictly above it
+def check_guard_shape():
+    print("\n(8) BOOK GUARD SHAPE (cap above the pin band, freeze on, exactly one instance)")
+    for term in ("LIVE", "DEON"):
+        data = TERMINAL_DATA[term]
+        pct = frz = None; last_init = None
+        for lg in sorted(glob.glob(os.path.join(data, "MQL5", "Logs", "*.log")))[-3:]:
+            for line in _read16(lg).splitlines():
+                if GUARD_EA + " (" not in line: continue
+                m = re.search(r"CONFIG \| MaxDailyLossPct=([\d.]+)%", line)
+                if m: pct = float(m.group(1)); last_init = line[:32]
+                m = re.search(r"FreezeOnDailyTrip=(true|false)", line)
+                if m: frz = (m.group(1) == "true")
+        check(f"{term} guard daily cap > {GUARD_MIN_DAILY_PCT:.0f}% (pin band)", pct is not None and pct > GUARD_MIN_DAILY_PCT,
+              f"running MaxDailyLossPct={pct} (init {last_init})" if pct is not None else "no guard CONFIG line in the last 3 logs")
+        check(f"{term} guard FreezeOnDailyTrip=true", frz is True, f"running FreezeOnDailyTrip={frz}")
+        live = {}
+        for lg in sorted(glob.glob(os.path.join(data, "logs", "*.log")))[-3:]:
+            for line in _read16(lg).splitlines():
+                m = re.search(r"expert (" + re.escape(GUARD_EA) + r" \([^)]*\)) (loaded successfully|removed)", line)
+                if m: live[m.group(1)] = 1 if m.group(2) == "loaded successfully" else 0
+        n = sum(live.values())
+        check(f"{term} exactly one guard instance", n == 1, f"{n} live: {[k for k, v in live.items() if v]}")
+        src = os.path.join(data, "MQL5", "Experts", GUARD_EA + ".mq5")
+        md = re.search(r'#define BUILD "([^"]+)"', io.open(src, encoding="utf-8", errors="replace").read()) if os.path.exists(src) else None
+        disk = md.group(1) if md else "?"; running = None
+        for lg in sorted(glob.glob(os.path.join(data, "MQL5", "Logs", "*.log")))[-3:]:
+            for line in _read16(lg).splitlines():
+                mb = re.search(r"MARIUS BOOK GUARD (BOOKGUARD-\S+)", line)
+                if mb and GUARD_EA + " (" in line: running = mb.group(1)
+        check(f"{term} guard running build == disk", running == disk, f"running {running} | disk {disk} (re-attach to load the new default set)")
+
 def main():
     quiet = "--quiet" in sys.argv
     print(f"FRAMEWORK CHECK | {datetime.now():%Y-%m-%d %H:%M} | window {WINDOW_DAYS}d")
@@ -325,6 +362,7 @@ def main():
     mt5.shutdown()
     check_running_vs_disk()
     check_bench_freshness()
+    check_guard_shape()
 
     fails = [n for n, ok, _ in RESULTS if not ok]
     print(f"\n{'='*78}")
