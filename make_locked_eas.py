@@ -43,9 +43,14 @@ TERMINALS = {
                 "me": r"C:\Program Files\Pepperstone MetaTrader 5\MetaEditor64.exe"},
     # PEP-MT5 above = PRODUCTION (live 51511633 since 2026-07-14).
     # PEP-STAGE below = STAGING: 2nd Pepperstone install ("C:\MT5 Pepperstone
-    # Instance 2"), demo 61552687, own data folder C54C4DDE... (Common\Files shared).
+    # Instance 2"), demo 61586543 (was 61552687, broker-expired 2026-08-31), own data folder C54C4DDE... (Common\Files shared).
     "PEP-STAGE": {"experts": TERMDATA + r"\C54C4DDE98E7B1FB905AFE04A9333631\MQL5\Experts",
                   "me": r"C:\MT5 Pepperstone Instance 2\MetaEditor64.exe"},
+    # PEP-DEON = 2nd LIVE Pepperstone account ($2,000, added 2026-07-27). Own install
+    # "C:\MT5 Pepperstone Instance Deon", data folder 942C8C7E... (Common\Files shared,
+    # non-portable). Runs GOLD + OIL LOCKED only (not silver/fibC) -> per-config "deploy".
+    "PEP-DEON": {"experts": TERMDATA + r"\942C8C7E5F6C67C7F9D9D82245E68176\MQL5\Experts",
+                 "me": r"C:\MT5 Pepperstone Instance Deon\MetaEditor64.exe"},
     "XM-MT4":  {"experts": TERMDATA + r"\98A82F92176B73A2100FCD1F8ABD7255\MQL4\Experts\Adapted",
                 "me": r"C:\Program Files (x86)\XM Global MT4\metaeditor.exe"},
     "PEP-MT4": {"experts": TERMDATA + r"\3294B546D50FEEDA6BF3CFC7CF858DB7\MQL4\Experts",
@@ -77,6 +82,7 @@ MT5_CONFIGS = {
                 # New anchors (Dec-01->Jul-12, $3k): XM $9,082/PF3.29/11.59%/194tr; PEP $9,342/PF3.39/11.33%/195tr.
                 # Pre-staged anchors (archived): XM $9,479/PF3.52/20.21%/191tr; PEP $9,741/PF3.63/19.15%/192tr.
         "symbols": ["GOLD", "XAUUSD"],
+        "deploy": ("XM-MT5", "PEP-MT5", "PEP-STAGE", "PEP-DEON"),  # + 2nd live $2k acct 2026-07-27
         # + COMPOUNDING CAP LOCKED 2026-07-14 (fib C transplant, S26; C1/C2 capital cells
         #   exposed uncapped re-inflation: $10k -> eqDD 27.9%/RF 1.24, give-back $8k of $13k).
         #   CAP2 surface (4 cells, 2 venues): XM5k $9,106/15.2%/RF5.04 - XM10k $10,166/10.4%/5.59
@@ -84,8 +90,12 @@ MT5_CONFIGS = {
         #   CAP1 (flat lots) = the safety alternative (RF 9.13, deposit-independent $8,649).
         #   Rescue-on-gold tested at 10k: beats uncapped (+$2,811) but DOMINATED by the caps
         #   (cap removes the very events the rescue treats). User chose CAP2.
-        "keep": {"UseSignalLog"},          # staged floor + comp cap in the lock -> hard-coded (A/B via the master)
-        "buildsuffix": "-SF12C2",
+        # + FIB C OVERLAY LOCKED 2026-08-06 (C1b): loss-gated recovery ride (session-override + fib ramp +
+        #   naked legs + book exit 40/trail 20), trigger kept as INPUT default 8 (user: recalibrate ~7 later).
+        #   Sweep: 3/6/7 = identical death-spiral (trigger sampled at signal times; gold blows through 3-7%
+        #   between signals; whole-book +$40 exit guts economics when armed) · 8 = baseline-identical no-harm.
+        "keep": {"UseSignalLog", "RescueOnDrawdownPct"},
+        "buildsuffix": "-SF12C2-FIBC8",
         "values": {
             "MaxCompoundScale": "2",       # LOCKED 2026-07-14 (4-cell surface, both venues)
             "UseStagedFloor": "true",      # LOCKED 2026-07-12 (gate: MT5 real-tick A/B both venues)
@@ -101,6 +111,11 @@ MT5_CONFIGS = {
             "BarrierATRMultiplier": "0.8", "BarrierATRUpper": "0", "BarrierATRLower": "0",
             "ATRSpacingMultiplier": "0.5", "MaxGridLevels": "6",
             "StagedFloorPct": "12.0",     # swept gold plateau (input, default only)
+            # fib C overlay (locked values = C1b):
+            "RescueOnDrawdownPct": "8.0",  # the FIBC8 trigger: stays a VISIBLE input (keep) but its default MUST be 8, not the master's 0 (2026-09-04 regen caught a 0.0 = ride OFF)
+            "RescueBookTargetUSD": "40.0", "RescueBookTrailPct": "20.0", "RescueMaxBaskets": "5",
+            "RescueOnlyInCrashState": "false", "UseCrashGuard": "false", "CrashGuardGateOnly": "false",
+            "UseFreezeHedge": "false", "UseCrashStateSells": "false", "CrossCrashSymbol": '""',
         },
     },
     "SILVER": {  # $2,574 / PF 2.60 / 8.66% eqDD / Rec 5.79 lock (conc=4, 2026-06-12)
@@ -127,7 +142,8 @@ MT5_CONFIGS = {
                  #   PEP $8,188/PF2.04/16.92%/RF3.63/166tr; XM $6,117/PF1.85/18.24%/RF3.08/159tr.
                  #   Staged/gate/taper levers = NOT-FOR-OIL (6 rejections 07-12) -> hard-coded OFF.
         "symbols": ["OILCash", "SpotCrude"],
-        "keep": {"UseSignalLog"},
+        "deploy": ("XM-MT5", "PEP-MT5", "PEP-STAGE", "PEP-DEON"),  # + 2nd live $2k acct 2026-07-27
+        "keep": {"UseSignalLog", "UseSignalStrengthGate", "SignalStrengthMin"},  # signal-strength A/B lever (2026-07-23)
         "buildsuffix": "-RSQ2",
         "values": {
             "AllowOppositeWhenDeep": "true",   # LOCKED 2026-07-12 (cross-venue gate)
@@ -300,7 +316,7 @@ def main():
         fname = f"Marius GridStat MT5 {tag} LOCKED.mq5"
         body = transform(mt5_master, tag, cfg, cfg.get("keep", KEEP_MT5),
                          f"MT5-{STAMP}-{BASE_MT5}-{tag}{cfg.get('buildsuffix','')}-LOCKED")
-        for term in ("XM-MT5", "PEP-MT5", "PEP-STAGE"):
+        for term in cfg.get("deploy", ("XM-MT5", "PEP-MT5", "PEP-STAGE")):
             path = os.path.join(TERMINALS[term]["experts"], fname)
             io.open(path, "w", encoding="utf-8").write(body)
             results.append((term, fname, compile_one(TERMINALS[term]["me"], path)))
@@ -342,7 +358,9 @@ def main():
     }
     fibc_body = transform(read_src(MASTER_FIBC), "FIBC", fibc_cfg, {"UseEquityLog"},
                           "FIBC-2026-07-13-XC4015-LOCKED")
-    for term in ("XM-MT5", "PEP-MT5", "PEP-STAGE"):
+    # 2026-08-08 user directive: PEP-MT5 (73B7A242, LIVE) + PEP-DEON (942C8C7E) are STANDING
+    # deploy targets for all future deploys; fib C goes LIVE Monday 2026-08-11.
+    for term in ("XM-MT5", "PEP-MT5", "PEP-STAGE", "PEP-DEON"):
         fpath = os.path.join(TERMINALS[term]["experts"], "Marius Hedger fib C LOCKED.mq5")
         io.open(fpath, "w", encoding="utf-8").write(fibc_body)
         results.append((term, "Marius Hedger fib C LOCKED.mq5", compile_one(TERMINALS[term]["me"], fpath)))

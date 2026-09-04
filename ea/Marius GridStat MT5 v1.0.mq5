@@ -16,7 +16,7 @@
 #property copyright "Marius"
 #property version   "1.00"
 
-#define EA_BUILD_VERSION "MT5-2026-09-03-S36c-PINRIDE-LOCKDIR"
+#define EA_BUILD_VERSION "MT5-2026-09-04-S38-VELOCITYGUARD"
 #define MAX_PENDING 5000
 
 #include <Trade/Trade.mqh>
@@ -74,6 +74,25 @@ input int    FastTrendPeriod    = 15;      // D1 EMA period for the fast gate (s
 input bool   UseCrashGuard      = false;
 input double CrashGuardPct      = 8.0;     // block BUYs when price is this% below the recent high (SELLs: above the low)
 input int    CrashGuardBars     = 10;      // D1 bars for the recent high/low window
+//--- [S37 2026-09-04] RANGE-POSITION GUARD (user: "the engines are not intelligent enough — selling on an
+//    uptrend, buying oil on a downtrend"). Both live specimens were the SAME error with the sign flipped:
+//    gold 09-02 SOLD within 1-2%% of its 10-day LOW after a 3-day slide (7%% below the 10d high) and got the
+//    bounce; oil 09-03 BOUGHT 0.7%% below its 10-day HIGH after a 2-day +6%% run and got the dip. The D1
+//    filter was right by its rule both times; the engine simply has no idea where price sits in its own
+//    recent range. This gate blocks NEW basket STARTS only: no BUY within RangeGuardPct%% of the N-day high,
+//    no SELL within RangeGuardPct%% of the N-day low. Grid legs and rescue legs untouched. Default OFF.
+input bool   UseRangeGuard      = false;   // block fades AT the range edge (new basket starts only)
+input double RangeGuardPct      = 2.0;     // within this %% of the N-day high (BUY) / low (SELL) = blocked
+input int    RangeGuardDays     = 10;      // D1 lookback for the range
+//--- [S38 2026-09-04] VELOCITY GUARD (08-11 improvement #1, finally built). The range guard (S37) failed because
+//    Goldminer fires AT range extremes by design; what the three live disasters share is SPEED, not position:
+//    gold 09-02 -7.5%%/3d into the sells, Aug-4/5 +4.7%%/2.5d into the sells, oil 09-03 +6%%/2d into the buy.
+//    No NEW basket starts while |current price / D1 close N days ago - 1| exceeds VelocityGuardPct -- rare by
+//    construction (a p95 threshold blocks ~5%% of days), symmetric (sit out the storm both ways = the fib C
+//    vol-regime lesson), and it leaves the ordinary range-edge harvests alone. Grid/rescue legs untouched.
+input bool   UseVelocityGuard   = false;   // block new basket starts during a fast multi-day move
+input double VelocityGuardPct   = 4.0;     // |N-day move| above this %% = blocked
+input int    VelocityGuardDays  = 3;       // D1 bars back for the reference close
 //    v2 STATE-MACHINE (2026-07-29): the plain distance rule also blocked the RECOVERY buys (price still far
 //    below the old high while basing/turning) = the -45% net cost. Fix: CRASH state is STICKY but exits on a
 //    CONFIRMED TURN -- price breaks the last CrashGuardResumeBars days' high (first higher-high) -> resume
@@ -486,6 +505,8 @@ int OnInit()
       Print("CONFIG | RescueOnDrawdownPct=", DoubleToString(RescueOnDrawdownPct,1),
             "% RescueHedgeRatio=", DoubleToString(RescueHedgeRatio,2),
             " (LOSS-GATED hedge: fires the recovery hedge on the drawdown itself, no signal needed)");
+      Print("CONFIG | S38-VELOCITYGUARD | UseVelocityGuard=", UseVelocityGuard, " pct=", DoubleToString(VelocityGuardPct,1), " days=", VelocityGuardDays);
+      Print("CONFIG | S37-RANGEGUARD | UseRangeGuard=", UseRangeGuard, " pct=", DoubleToString(RangeGuardPct,1), " days=", RangeGuardDays);
       Print("CONFIG | S36-PINRIDE | RescueBookSingle=", RescueBookSingle, " RescueLockDir=", RescueLockDir, " RescueImmediateLeg=", RescueImmediateLeg, " ratio=", DoubleToString(RescueImmediateRatio,2),
             " RescueRampByLegs=", RescueRampByLegs, " RescueSuspendsStaged=", RescueSuspendsStaged);
       Print("CONFIG | SUB8-RECAL | RescueTickArm=", RescueTickArm,
@@ -1055,6 +1076,28 @@ void OnTick()
       if(pen < SignalStrengthMin) skip = "weakSignal(pen="+DoubleToString(pen,1)+"<"+DoubleToString(SignalStrengthMin,1)+")";
    }
    if(skip=="" && !rescue && IsOverextended()) skip = "overextended";
+   if(skip=="" && !rescue && UseVelocityGuard)   // [S38] sit out the storm: no new baskets in a fast multi-day move
+   {
+      double vgC[];
+      if(CopyClose(_Symbol, PERIOD_D1, VelocityGuardDays, 1, vgC)==1 && vgC[0] > 0)
+      {
+         double vgVel = (Bid_()/vgC[0] - 1.0)*100.0;
+         if(MathAbs(vgVel) >= VelocityGuardPct) skip = "velocity("+DoubleToString(vgVel,1)+"%/"+IntegerToString(VelocityGuardDays)+"d)";
+      }
+   }
+   if(skip=="" && !rescue && UseRangeGuard)      // [S37] don't buy the top of the range, don't sell the bottom of it
+   {
+      double rgH[], rgL[];
+      if(CopyHigh(_Symbol, PERIOD_D1, 1, RangeGuardDays, rgH)==RangeGuardDays &&
+         CopyLow(_Symbol,  PERIOD_D1, 1, RangeGuardDays, rgL)==RangeGuardDays)
+      {
+         double rgHigh=rgH[0], rgLow=rgL[0];
+         for(int rgi=1; rgi<RangeGuardDays; rgi++){ if(rgH[rgi]>rgHigh) rgHigh=rgH[rgi]; if(rgL[rgi]<rgLow) rgLow=rgL[rgi]; }
+         double rgPx = Bid_();
+         if(dir==ORDER_TYPE_BUY  && rgPx >= rgHigh*(1.0 - RangeGuardPct/100.0)) skip = "rangeTop("+DoubleToString((rgPx/rgHigh-1)*100,1)+"%)";
+         if(dir==ORDER_TYPE_SELL && rgPx <= rgLow *(1.0 + RangeGuardPct/100.0)) skip = "rangeBottom(+"+DoubleToString((rgPx/rgLow-1)*100,1)+"%)";
+      }
+   }
    double szMult = LookupSizing(key);                      // 1.0 if table off; 0 = negative/unknown setup
    if(skip=="" && !rescue && !crashSell && UseSizingTable && szMult <= 0) skip = "sizingZero";  // hedge + crash-state legs bypass
    int maxB = (MaxConcurrentBaskets < 1) ? 1 : MaxConcurrentBaskets;
@@ -1914,7 +1957,30 @@ void ManageOneBasket(int targetBid)
       if(StringFind(cmt, "_HEDGE") >= 0) { hedgeOpen=true; hedgeLots+=lot; hedgeFloat+=pnl; }
       else { nLevels++; initialDir=PositionGetInteger(POSITION_TYPE); basketLots+=lot; basketSumPxLot+=op*lot; basketFloat+=pnl; }
    }
-   if(nLevels==0) { g_peakBasketFloat=0.0; g_lockArmed=false; return; }
+   // [S36d 2026-09-04 BUG FIX] flat book => the rescue state MUST end. g_rescueDir was cleared only in the
+   // multi-basket branch (unreachable on single-basket engines), so after the first arm the engine stayed in
+   // "rescuing" forever: every signal, in or out of session, opened a naked leg toward whichever side floated
+   // worse (demo 09-03/04: 21 legs, 17 rescue lines with the book green). Disarm here, where gold DOES run.
+   if(nLevels==0)
+   {
+      g_peakBasketFloat=0.0; g_lockArmed=false;
+      if(g_rescueDir >= 0 || g_rideArm)
+      {
+         Print("RESCUE DISARMED: book flat");
+         g_rescueDir = -1; g_rescuePeak = 0.0; g_rideArm = false; g_rescueDeepest = 0.0;
+         g_srArmPrice = 0; g_srExt = 0; g_srExtTime = 0;
+         g_rescueCooldownUntil = (datetime)(TimeCurrent() + (long)RescueRearmCooldownBars * PeriodSeconds(PERIOD_CURRENT));
+      }
+      return;
+   }
+   // [S36d] rescue side fully gone (its legs banked/stopped) while the loser remains -> the rescue is over too
+   if(g_rescueDir >= 0 && CountSameDirBaskets(g_rescueDir) == 0)
+   {
+      Print("RESCUE DISARMED: no rescue-side legs remain");
+      g_rescueDir = -1; g_rescuePeak = 0.0; g_rideArm = false; g_rescueDeepest = 0.0;
+      g_srArmPrice = 0; g_srExt = 0; g_srExtTime = 0;
+      g_rescueCooldownUntil = (datetime)(TimeCurrent() + (long)RescueRearmCooldownBars * PeriodSeconds(PERIOD_CURRENT));
+   }
    double combinedFloat = basketFloat + hedgeFloat;
 
    double atrD1t = ReadBuf(hATR_D1,0,1);

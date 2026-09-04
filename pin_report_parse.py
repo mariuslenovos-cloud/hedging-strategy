@@ -8,7 +8,7 @@ from collections import defaultdict
 WINDOWS={"Aug-4/5 melt-up":("2026.08.04","2026.08.06"),"Aug-19 whipsaw":("2026.08.18","2026.08.21"),
          "Sep-2/3 squeeze":("2026.09.02","2026.09.05"),"Apr whipsaw":("2026.04.13","2026.04.18"),"May-12":("2026.05.11","2026.05.14")}
 # deals table row: time deal symbol type direction volume price order commission swap profit balance comment
-ROW=re.compile(r"(20\d\d\.\d\d\.\d\d \d\d:\d\d:\d\d) \d+ XAUUSD (buy|sell) (in|out|in/out) ([\d.]+) ([\d.]+) \d+ (-?[\d.]+) (-?[\d.]+) (-?[\d.]+) ")
+ROW=re.compile(r"(20\d\d\.\d\d\.\d\d \d\d:\d\d:\d\d) \d+ (?:XAUUSD|GOLD) (buy|sell) (in|out|in/out) ([\d.]+) ([\d.]+) \d+ (-?[\d.]+) (-?[\d.]+) (-?[\d.]+) ")
 def parse(path):
     h=io.open(path,encoding="utf-16",errors="replace").read()
     txt=re.sub(r"<[^>]+>"," ",h); txt=re.sub(r"[ \t]+"," ",txt)

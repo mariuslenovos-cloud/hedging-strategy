@@ -115,6 +115,68 @@ CELLS.update({
     # + the SR6-validated cheap-release (fib C build P): realizes a pinned/riding book at the first bad
     # state while the loss is still small (float >= -200) = the bounded whipsaw exit; costs the 09-02 win
     # in the sim (would release -$130 at the 21:00 pullback) -> the tester prices that trade.
+    # 2026-09-04: the 5% pin fired 28x/9mo on XM (-$787 vs +$6,019 control) = the freeze-at-noise verdict again.
+    # The mechanism argument: ordinary baskets float to ~5% and recover; disasters run past 8%. Pin at the
+    # DISASTER line (where the guard/staged floor amputate today), not the noise line.
+    "GOLD HPIN8":  dict(GOLD_FIBC8, LotSize="0.01", ProfitTargetUSD="50.0", RescueBookTargetUSD="20.0",
+                        RescueOnDrawdownPct="8.0", RescueTickArm="true", RescueBookSingle="true", RescueLockDir="true",
+                        RescueTargetPctDeepest="10.0", RescueRearmCooldownBars="288",
+                        RescueImmediateLeg="true", RescueImmediateRatio="1.0",
+                        RescueRampByLegs="true", RescueSuspendsStaged="true"),
+    "GOLD HPIN10": dict(GOLD_FIBC8, LotSize="0.01", ProfitTargetUSD="50.0", RescueBookTargetUSD="20.0",
+                        RescueOnDrawdownPct="10.0", RescueTickArm="true", RescueBookSingle="true", RescueLockDir="true",
+                        RescueTargetPctDeepest="10.0", RescueRearmCooldownBars="288",
+                        RescueImmediateLeg="true", RescueImmediateRatio="1.0",
+                        RescueRampByLegs="true", RescueSuspendsStaged="true"),
+    "GOLD HPIN12": dict(GOLD_FIBC8, LotSize="0.01", ProfitTargetUSD="50.0", RescueBookTargetUSD="20.0",
+                        RescueOnDrawdownPct="12.0", RescueTickArm="true", RescueBookSingle="true", RescueLockDir="true",
+                        RescueTargetPctDeepest="10.0", RescueRearmCooldownBars="288",
+                        RescueImmediateLeg="true", RescueImmediateRatio="1.0",
+                        RescueRampByLegs="true", RescueSuspendsStaged="true"),
+    # demo side-by-side twin of the HPIN12 candidate (own magic, like FIBC SR6F / GOLD DAYRANK 59956)
+    "GOLD HPIN12F": dict(GOLD_FIBC8, LotSize="0.01", ProfitTargetUSD="50.0", RescueBookTargetUSD="20.0",
+                        RescueOnDrawdownPct="12.0", RescueTickArm="true", RescueBookSingle="true", RescueLockDir="true",
+                        RescueTargetPctDeepest="10.0", RescueRearmCooldownBars="288",
+                        RescueImmediateLeg="true", RescueImmediateRatio="1.0",
+                        RescueRampByLegs="true", RescueSuspendsStaged="true", MagicSeed="59957"),
+    # 2026-09-04 S37 RANGE GUARD: the two live specimens (gold sold within 1-2% of its 10d low; oil bought 0.7%
+    # below its 10d high) = fading at the range edge. Gate on NEW basket starts only.
+    "GOLD HRG2":  dict(GOLD_FIBC8, LotSize="0.01", ProfitTargetUSD="50.0", RescueBookTargetUSD="20.0",
+                       UseRangeGuard="true", RangeGuardPct="2.0", RangeGuardDays="10"),
+    "GOLD HRG3":  dict(GOLD_FIBC8, LotSize="0.01", ProfitTargetUSD="50.0", RescueBookTargetUSD="20.0",
+                       UseRangeGuard="true", RangeGuardPct="3.0", RangeGuardDays="10"),
+    "GOLD HPIN12RG2": dict(GOLD_FIBC8, LotSize="0.01", ProfitTargetUSD="50.0", RescueBookTargetUSD="20.0",
+                        RescueOnDrawdownPct="12.0", RescueTickArm="true", RescueBookSingle="true", RescueLockDir="true",
+                        RescueTargetPctDeepest="10.0", RescueRearmCooldownBars="288",
+                        RescueImmediateLeg="true", RescueImmediateRatio="1.0",
+                        RescueRampByLegs="true", RescueSuspendsStaged="true",
+                        UseRangeGuard="true", RangeGuardPct="2.0", RangeGuardDays="10"),
+    # 2026-09-04 S38 VELOCITY GUARD (gold |3d| percentiles: p90 3.7 / p95 4.6 / p98 5.7; Aug-5 +5.3, 09-02 ~-7.5)
+    "GOLD HVG3":  dict(GOLD_FIBC8, LotSize="0.01", ProfitTargetUSD="50.0", RescueBookTargetUSD="20.0",
+                       UseVelocityGuard="true", VelocityGuardPct="3.0", VelocityGuardDays="3"),
+    "GOLD HVG4":  dict(GOLD_FIBC8, LotSize="0.01", ProfitTargetUSD="50.0", RescueBookTargetUSD="20.0",
+                       UseVelocityGuard="true", VelocityGuardPct="4.0", VelocityGuardDays="3"),
+    "GOLD HVG5":  dict(GOLD_FIBC8, LotSize="0.01", ProfitTargetUSD="50.0", RescueBookTargetUSD="20.0",
+                       UseVelocityGuard="true", VelocityGuardPct="5.0", VelocityGuardDays="3"),
+    "GOLD HVG4D45": dict(GOLD_FIBC8, LotSize="0.01", ProfitTargetUSD="50.0", RescueBookTargetUSD="20.0",
+                       UseVelocityGuard="true", VelocityGuardPct="4.5", VelocityGuardDays="4"),
+    "GOLD HVG4D5":  dict(GOLD_FIBC8, LotSize="0.01", ProfitTargetUSD="50.0", RescueBookTargetUSD="20.0",
+                       UseVelocityGuard="true", VelocityGuardPct="5.0", VelocityGuardDays="4"),
+    "GOLD HVG5D5":  dict(GOLD_FIBC8, LotSize="0.01", ProfitTargetUSD="50.0", RescueBookTargetUSD="20.0",
+                       UseVelocityGuard="true", VelocityGuardPct="5.0", VelocityGuardDays="5"),
+    # the stack: pin at the staged line (passenger on XM, -$37 on the PEP night) + 5d/5% velocity guard (XM RF 7.0->10.7, eqDD 12.1->7.2%)
+    "GOLD HPIN12VG5": dict(GOLD_FIBC8, LotSize="0.01", ProfitTargetUSD="50.0", RescueBookTargetUSD="20.0",
+                        RescueOnDrawdownPct="12.0", RescueTickArm="true", RescueBookSingle="true", RescueLockDir="true",
+                        RescueTargetPctDeepest="10.0", RescueRearmCooldownBars="288",
+                        RescueImmediateLeg="true", RescueImmediateRatio="1.0",
+                        RescueRampByLegs="true", RescueSuspendsStaged="true",
+                        UseVelocityGuard="true", VelocityGuardPct="5.0", VelocityGuardDays="5"),
+    "GOLD HPIN12VG5F": dict(GOLD_FIBC8, LotSize="0.01", ProfitTargetUSD="50.0", RescueBookTargetUSD="20.0",
+                        RescueOnDrawdownPct="12.0", RescueTickArm="true", RescueBookSingle="true", RescueLockDir="true",
+                        RescueTargetPctDeepest="10.0", RescueRearmCooldownBars="288",
+                        RescueImmediateLeg="true", RescueImmediateRatio="1.0",
+                        RescueRampByLegs="true", RescueSuspendsStaged="true",
+                        UseVelocityGuard="true", VelocityGuardPct="5.0", VelocityGuardDays="5", MagicSeed="59957"),
     "GOLD HPINSR": dict(GOLD_FIBC8, LotSize="0.01", ProfitTargetUSD="50.0", RescueBookTargetUSD="20.0",
                         RescueOnDrawdownPct="5.0", RescueTickArm="true",
                         RescueTargetPctDeepest="10.0", RescueBookSingle="true", RescueLockDir="true", RescueRearmCooldownBars="288",
@@ -188,7 +250,7 @@ def transform(src, tag, values):
                                 "RescueOnDrawdownPct","UseStateRelease","RescueTickArm",
                                 "RescueTargetPctDeepest","RescueRearmCooldownBars",
                                 "RescueImmediateLeg","RescueImmediateRatio","RescueRampByLegs",
-                                "RescueSuspendsStaged","RescueBookSingle","RescueLockDir","StateReleaseMinMark","LotSize","ProfitTargetUSD"))
+                                "RescueSuspendsStaged","RescueBookSingle","RescueLockDir","UseRangeGuard","RangeGuardPct","UseVelocityGuard","VelocityGuardPct","StateReleaseMinMark","LotSize","ProfitTargetUSD"))
     guard = f'\n   Print("GRIDSTAT TEST CELL {tag} -- zero-input; deltas vs SF12 lock: {deltas}");\n'
     if anchor not in src2: raise SystemExit(f"{tag}: OnInit anchor missing")
     src2 = src2.replace(anchor, anchor + guard, 1)
