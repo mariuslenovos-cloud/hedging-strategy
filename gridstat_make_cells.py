@@ -133,6 +133,20 @@ CELLS.update({
                         RescueTargetPctDeepest="10.0", RescueRearmCooldownBars="288",
                         RescueImmediateLeg="true", RescueImmediateRatio="1.0",
                         RescueRampByLegs="true", RescueSuspendsStaged="true"),
+    # SCALP MODE of the live engine (2026-09-05, user: "I want a scalping strategy"): every standalone gold scalper died on cost
+    # (ScalpStat M1/M5, FXFade, EURGBP fade-grid, RevScalp, the outsized-bar fade); the one scalp that clears cost on this feed is the
+    # grid's own harvest. These cells = GOLD HPIN12 verbatim with a FASTER harvest only (PT 25 / 35 vs 50). Judge vs GOLD HPIN12:
+    # the turnover law says more harvests can pay, the RR law says a $25 target against an ~$80 first-leg stop needs >76% wins.
+    "GOLD HPIN12 PT25": dict(GOLD_FIBC8, LotSize="0.01", ProfitTargetUSD="25.0", RescueBookTargetUSD="20.0",
+                        RescueOnDrawdownPct="12.0", RescueTickArm="true", RescueBookSingle="true", RescueLockDir="true",
+                        RescueTargetPctDeepest="10.0", RescueRearmCooldownBars="288",
+                        RescueImmediateLeg="true", RescueImmediateRatio="1.0",
+                        RescueRampByLegs="true", RescueSuspendsStaged="true"),
+    "GOLD HPIN12 PT35": dict(GOLD_FIBC8, LotSize="0.01", ProfitTargetUSD="35.0", RescueBookTargetUSD="20.0",
+                        RescueOnDrawdownPct="12.0", RescueTickArm="true", RescueBookSingle="true", RescueLockDir="true",
+                        RescueTargetPctDeepest="10.0", RescueRearmCooldownBars="288",
+                        RescueImmediateLeg="true", RescueImmediateRatio="1.0",
+                        RescueRampByLegs="true", RescueSuspendsStaged="true"),
     # demo side-by-side twin of the HPIN12 candidate (own magic, like FIBC SR6F / GOLD DAYRANK 59956)
     "GOLD HPIN12F": dict(GOLD_FIBC8, LotSize="0.01", ProfitTargetUSD="50.0", RescueBookTargetUSD="20.0",
                         RescueOnDrawdownPct="12.0", RescueTickArm="true", RescueBookSingle="true", RescueLockDir="true",
