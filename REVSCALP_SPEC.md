@@ -9,6 +9,8 @@
 > ER regime = NO separation (halves flip, within-cell contradicts itself); VWAP-z stretch = weak same-direction tilt (4/5 cells), halves soft -
 > a sizing candidate at best, parked behind the DAYRANK precedent. Tools: vr_precheck.py (Gate 0), pull_m1_pep.py (M1 + mid from the live feed).
 
+> **Gate 0, window form (2026-09-05, gate0_window.py): gold 00:00-13:30 SAST mid lag-1 -0.019 / t -4.70 (statistic passes; bid identical, no bounce on quote data) but predictable move $0.03/bar vs $0.25 cost (parity needs lag-1 0.139, best hour 0.057). Oil momentum window 15:00-21:00 lag-1 -0.019 / t -3.00 = wrong sign. Clause 2 (cost) fails 8:1 -> no shadow channel.**
+
 **Two engines, one framework, opposite signs.**
 `GOLD_MR` fades stretch on XAUUSD. `OIL_MOM` rides thrust on WTI. Both are flat-single (no grid, no adds, no averaging) so they stay separable from GridStat in the shadow logger.
 
