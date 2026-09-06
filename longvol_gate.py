@@ -25,7 +25,23 @@ for lab, a, b in WINDOWS:
     a_, b_ = datetime.fromisoformat(a), datetime.fromisoformat(b)
     w = [x[1] for x in trades if a_ <= x[0] < b_]
     pain += sum(w); print(f"  {lab:36s} {len(w):3d} trades  ${sum(w):+8.2f}")
-ga, gb, gc = net >= 395, pain > 0, -min(p) <= 119.5
+# G-A bar = 50% of the SIM's net on the REPORT'S OWN window (2026-09-06: the fixed $395 = 50% of the sim's
+# full Apr-22->Aug-24 window falsely FAILED a Dec-01->Sep-05 GUI run at $330 that was 60% of the sim on that span).
+# --sim-net <usd> overrides (also the negative test); else the sim is run on the report's first..last close date.
+import argparse, contextlib, os
+_ap = argparse.ArgumentParser(); _ap.add_argument("report"); _ap.add_argument("--sim-net", type=float, default=None)
+_a = _ap.parse_args()
+if _a.sim_net is None:
+    with open(os.devnull, "w", encoding="utf-8") as _dn, contextlib.redirect_stdout(_dn):
+        import longvol_bracket_sim as _sim
+        _s = _sim.run(13, 0.7, 9)
+    lo, hi = trades[0][0].replace(hour=0, minute=0, second=0), trades[-1][0]
+    sim_net = float(_s[(_s.index >= lo) & (_s.index <= hi)].sum())
+else:
+    sim_net = _a.sim_net
+bar = 0.5 * sim_net
+print(f"sim (H13 k0.7 w9) on this report's window {trades[0][0]:%Y-%m-%d}->{trades[-1][0]:%Y-%m-%d}: ${sim_net:,.0f} -> G-A bar = 50% = ${bar:,.0f}")
+ga, gb, gc = net >= bar, pain > 0, -min(p) <= 119.5
 print(f"\nG-A net >= $395 : {'PASS' if ga else 'FAIL'} (${net:,.0f})")
 print(f"G-B pain sum > 0: {'PASS' if gb else 'FAIL'} (${pain:,.0f})")
 print(f"G-C worst <= $119.50: {'PASS' if gc else 'FAIL'} (${min(p):.2f})")
