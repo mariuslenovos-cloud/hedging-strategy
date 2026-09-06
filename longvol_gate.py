@@ -42,8 +42,7 @@ else:
 bar = 0.5 * sim_net
 print(f"sim (H13 k0.7 w9) on this report's window {trades[0][0]:%Y-%m-%d}->{trades[-1][0]:%Y-%m-%d}: ${sim_net:,.0f} -> G-A bar = 50% = ${bar:,.0f}")
 ga, gb, gc = net >= bar, pain > 0, -min(p) <= 119.5
-print(f"
-G-A net >= ${bar:,.0f} (50% of sim on this window): {'PASS' if ga else 'FAIL'} (${net:,.0f})")
+print(f"\nG-A net >= ${bar:,.0f} (50% of sim on this window): {'PASS' if ga else 'FAIL'} (${net:,.0f})")
 print(f"G-B pain sum > 0: {'PASS' if gb else 'FAIL'} (${pain:,.0f})")
 print(f"G-C worst <= $119.50: {'PASS' if gc else 'FAIL'} (${min(p):.2f})")
 print("VERDICT:", "PASS -> demo forward beside the book" if ga and gb and gc else "FAIL -> shelve, no re-tuning")
