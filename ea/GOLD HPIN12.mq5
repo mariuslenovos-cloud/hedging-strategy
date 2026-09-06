@@ -17,7 +17,7 @@
 #property copyright "Marius"
 #property version   "1.00"
 
-#define EA_BUILD_VERSION "GS-CELL-GOLD-HPIN12-S38-2026-09-04"
+#define EA_BUILD_VERSION "GS-CELL-GOLD-HPIN12-S39-2026-09-06"
 #define MAX_PENDING 5000
 
 #include <Trade/Trade.mqh>
@@ -120,7 +120,7 @@ const int RegimeGateMinN        = 8;  // CELL-LOCKED
 //--- SIGNAL DIAGNOSTIC LOG (default OFF). Logs EVERY Goldminer fire + each gate's value/pass-fail +
 //    the final TRADE/SKIP decision -> gridstat_signals_<symbol>.csv (Common\Files, per-symbol = no clobber).
 //    Zero effect on trade behaviour; turn ON to see exactly why a signal was/wasn't taken (e.g. MT4 vs MT5 divergence).
-const bool UseSignalLog          = false;  // CELL-LOCKED
+const bool UseSignalLog          = true;  // CELL-LOCKED
 //--- Overextension regime filter (Ch.17 structural-break; session 19o). Skips entries when price is
 //    stretched far from the D1 mean = the overextension regime that breeds deep-DD/blow-up baskets.
 //    Python MAE study: gold corr(dist,MAE)=-0.61, silver -0.38 (both SEPARATE); oil -0.20 (NO separation
@@ -549,13 +549,15 @@ string SigFile() { return "gridstat_signals_" + _Symbol + ".csv"; }
 void LogSignal(int dir, string key, double wpr, double adx, double ang, bool bull, double wr, int ns, string decision)
 {
    if(!UseSignalLog) return;
+   if(MQLInfoInteger(MQL_TESTER)) return;   // S39: tester runs never pollute the shared live signal log
    int h = FileOpen(SigFile(), FILE_READ|FILE_WRITE|FILE_CSV|FILE_COMMON|FILE_ANSI, ',');
    if(h == INVALID_HANDLE) return;
    FileSeek(h, 0, SEEK_END);
    FileWrite(h, TimeToString(TimeCurrent(), TIME_DATE|TIME_MINUTES),
              (dir==ORDER_TYPE_BUY ? "BUY" : "SELL"), key,
              DoubleToString(wpr,1), DoubleToString(adx,1), DoubleToString(ang,1),
-             (bull ? "1" : "0"), DoubleToString(wr,2), IntegerToString(ns), decision);
+             (bull ? "1" : "0"), DoubleToString(wr,2), IntegerToString(ns), decision,
+             IntegerToString(AccountInfoInteger(ACCOUNT_LOGIN)));   // S39: 11th column = writer
    FileClose(h);
 }
 

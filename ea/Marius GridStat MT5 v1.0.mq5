@@ -16,7 +16,7 @@
 #property copyright "Marius"
 #property version   "1.00"
 
-#define EA_BUILD_VERSION "MT5-2026-09-04-S38-VELOCITYGUARD"
+#define EA_BUILD_VERSION "MT5-2026-09-06-S39-SIGLOG"
 #define MAX_PENDING 5000
 
 #include <Trade/Trade.mqh>
@@ -546,13 +546,15 @@ string SigFile() { return "gridstat_signals_" + _Symbol + ".csv"; }
 void LogSignal(int dir, string key, double wpr, double adx, double ang, bool bull, double wr, int ns, string decision)
 {
    if(!UseSignalLog) return;
+   if(MQLInfoInteger(MQL_TESTER)) return;   // S39: tester runs never pollute the shared live signal log
    int h = FileOpen(SigFile(), FILE_READ|FILE_WRITE|FILE_CSV|FILE_COMMON|FILE_ANSI, ',');
    if(h == INVALID_HANDLE) return;
    FileSeek(h, 0, SEEK_END);
    FileWrite(h, TimeToString(TimeCurrent(), TIME_DATE|TIME_MINUTES),
              (dir==ORDER_TYPE_BUY ? "BUY" : "SELL"), key,
              DoubleToString(wpr,1), DoubleToString(adx,1), DoubleToString(ang,1),
-             (bull ? "1" : "0"), DoubleToString(wr,2), IntegerToString(ns), decision);
+             (bull ? "1" : "0"), DoubleToString(wr,2), IntegerToString(ns), decision,
+             IntegerToString(AccountInfoInteger(ACCOUNT_LOGIN)));   // S39: 11th column = writer
    FileClose(h);
 }
 

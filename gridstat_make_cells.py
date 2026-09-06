@@ -128,7 +128,7 @@ CELLS.update({
                         RescueTargetPctDeepest="10.0", RescueRearmCooldownBars="288",
                         RescueImmediateLeg="true", RescueImmediateRatio="1.0",
                         RescueRampByLegs="true", RescueSuspendsStaged="true"),
-    "GOLD HPIN12": dict(GOLD_FIBC8, LotSize="0.01", ProfitTargetUSD="50.0", RescueBookTargetUSD="20.0",
+    "GOLD HPIN12": dict(GOLD_FIBC8, LotSize="0.01", ProfitTargetUSD="50.0", RescueBookTargetUSD="20.0", UseSignalLog="true",  # LIVE cell: the monitors read this log (framework ⑨); tester runs are guarded in the master (S39)
                         RescueOnDrawdownPct="12.0", RescueTickArm="true", RescueBookSingle="true", RescueLockDir="true",
                         RescueTargetPctDeepest="10.0", RescueRearmCooldownBars="288",
                         RescueImmediateLeg="true", RescueImmediateRatio="1.0",

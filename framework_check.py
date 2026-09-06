@@ -229,21 +229,47 @@ def check_ea_inputs():
               f"{os.path.getsize(p):,} bytes, {age:.0f}d old" if ok else "MISSING or empty in Common\\Files")
 
 
+# 2026-09-06: the auditor's EVENT log only writes on episode closes/alerts, so "auditor log < 6h" failed on every
+# quiet weekend (a check that cries wolf trains the operator to ignore it). The auditor's per-CYCLE heartbeat is
+# family_heat.json (rewritten every 60s) -> that is the liveness signal; the event log gets a 7-day window.
+FRESHNESS = [
+    ("episode ledger",    os.path.join(ADIR, "episode_ledger.csv"), 48),
+    ("auditor heartbeat", os.path.join(ADIR, "family_heat.json"), 6),
+    ("auditor event log", os.path.join(ADIR, "episode_auditor.log"), 24 * 7),
+    ("morning brief",     max(glob.glob(os.path.join(ADIR, "morning_brief_*.txt")) or [""], default=""), 36),
+    ("operator ledger",   os.path.join(ADIR, "operator_ledger.csv"), 24 * 14),
+]
+
 def check_freshness():
     """A monitor that stopped writing is indistinguishable from a calm market."""
     print("\n⑤ OUTPUT FRESHNESS (did the monitors actually run?)")
-    for name, path, max_h in [
-        ("episode ledger",   os.path.join(ADIR, "episode_ledger.csv"), 48),
-        ("auditor log",      os.path.join(ADIR, "episode_auditor.log"), 6),
-        ("morning brief",    max(glob.glob(os.path.join(ADIR, "morning_brief_*.txt")) or [""], default=""), 36),
-        ("operator ledger",  os.path.join(ADIR, "operator_ledger.csv"), 24 * 14),
-    ]:
+    for name, path, max_h in FRESHNESS:
         if not path or not os.path.exists(path):
             check(f"{name} present", False, "missing"); continue
         age_h = (time.time() - os.path.getmtime(path)) / 3600
         check(f"{name} fresh (< {max_h}h)", age_h <= max_h, f"{age_h:.1f}h old")
 
 
+
+# ---- (9) LIVE SIGNAL LOG (2026-09-06): the fingerprint miner, the SLOT-QUALITY assertion and the register all read
+#      Common\Files\gridstat_signals_<symbol>.csv. A zero-input CELL is generated with UseSignalLog=false (the tester
+#      rule), so the day GOLD HPIN12 went live the live gold signal stream went silent and nothing said so. Per live
+#      terminal, the watched gold build on disk must have UseSignalLog true (const or input default).
+def check_live_signal_log():
+    print("\n(9) LIVE SIGNAL LOG (does the attached gold build write the log the monitors read?)")
+    for ea, terms in WATCH_EAS.items():
+        if "GOLD" not in ea.upper(): continue
+        for term in terms:
+            if term not in ("LIVE", "DEON"): continue
+            exps = os.path.join(TERMINAL_DATA[term], "MQL5", "Experts")
+            src = os.path.join(exps, ea + ".mq5")
+            if not os.path.exists(src):
+                check(f"{term} {ea}: source on disk", False, "missing"); continue
+            txt = io.open(src, encoding="utf-8", errors="replace").read()
+            m = re.search(r"(?:const|input)\s+bool\s+UseSignalLog\s*=\s*(true|false)", txt)
+            ok = bool(m) and m.group(1) == "true"
+            check(f"{term} {ea}: UseSignalLog=true on disk", ok,
+                  f"UseSignalLog={m.group(1) if m else '?'}" + ("" if ok else " -> live gold fingerprints unattributed, SLOT-QUALITY blind"))
 
 # ---- (6) RUNNING-vs-DISK (2026-09-04): a CLI compile writes a new .ex5 but the ATTACHED instance keeps
 #      running the OLD code until someone re-attaches it. Found the hard way: the demo's GOLD LOCKED kept
@@ -365,6 +391,7 @@ def main():
     check_running_vs_disk()
     check_bench_freshness()
     check_guard_shape()
+    check_live_signal_log()
 
     fails = [n for n, ok, _ in RESULTS if not ok]
     print(f"\n{'='*78}")
