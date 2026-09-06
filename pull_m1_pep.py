@@ -12,7 +12,8 @@ assert ai and ai.login == 51511633, f"login guard failed: {ai}"
 print("LOGIN OK", ai.login, ai.server, flush=True)
 end = datetime.now() + timedelta(days=1)
 start = datetime(2025, 8, 20)
-for sym, out in [("XAUUSD", "xauusd_m1_export.csv"), ("SpotCrude", "spotcrude_m1_export.csv")]:
+PAIRS = [tuple(a.split("=", 1)) for a in sys.argv[1:] if "=" in a] or [("XAUUSD", "xauusd_m1_export.csv"), ("SpotCrude", "spotcrude_m1_export.csv")]
+for sym, out in PAIRS:   # usage: python pull_m1_pep.py XAGUSD=xagusd_m1_export.csv  (default = gold + oil)
     mt5.symbol_select(sym, True)
     info = mt5.symbol_info(sym); pt = info.point
     frames = []
