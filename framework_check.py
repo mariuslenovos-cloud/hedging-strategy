@@ -285,8 +285,14 @@ WATCH_EAS = {   # EA file name -> attached on which terminals (the book as deplo
     "Marius GridStat MT5 OIL SOLID LOCKED": ("LIVE", "DEON", "DEMO"),
     "Marius GridStat MT5 GOLD LOCKED": ("DEMO",),
     "GOLD DAYRANK": ("DEMO",),
-    "Marius LongVol Bracket MT5 v1.0": ("DEMO",),   # 2026-09-06 demo forward (gates passed on the runner); FAILS until attached = the negative test
+    "Marius LongVol Bracket MT5 v1.0": ("DEMO",),   # 2026-09-06 demo forward; attached 12:22 (banner verified), check generalised the same day
 }
+STAMP_RE = re.compile(r"([A-Za-z0-9][A-Za-z0-9-]*20\d\d-\d\d-\d\d[A-Za-z0-9-]*)")
+def _disk_stamp(src):
+    """Build stamp of an EA source: EA_BUILD_VERSION / #define EA_BUILD / #define BUILD (any dated stamp)."""
+    txt = io.open(src, encoding="utf-8", errors="replace").read()
+    m = re.search(r'(?:EA_BUILD_VERSION|#define\s+EA_BUILD|#define\s+BUILD)\s+"([^"]+)"', txt)
+    return m.group(1) if m else "?"
 def _read16(path):
     for enc in ("utf-16", "cp1252"):
         try: return io.open(path, encoding=enc, errors="replace").read()
@@ -300,16 +306,19 @@ def check_running_vs_disk():
             src = os.path.join(data, "MQL5", "Experts", ea + ".mq5")
             if not os.path.exists(src):
                 check(f"{term} {ea}: source on disk", False, "missing .mq5"); continue
-            m = re.search(r'EA_BUILD_VERSION\s+"([^"]+)"', io.open(src, encoding="utf-8", errors="replace").read())
-            disk = m.group(1) if m else "?"
+            # 2026-09-06 (Bug Log): the stamp lived in EA_BUILD_VERSION and the banner in "MARIUS GRIDSTAT MT5 <stamp>"
+            # only for the GridStat family. LongVol (#define EA_BUILD, banner "MARIUS LONGVOL BRACKET <stamp>") could
+            # never PASS -> its 09-06 "negative test" failed for the wrong reason. Now: any #define/const carrying a
+            # dated stamp on disk; any init line printed by this EA that carries a dated stamp in the log.
+            disk = _disk_stamp(src)
             logs = sorted(glob.glob(os.path.join(data, "MQL5", "Logs", "*.log")))[-3:]
             running = None
             for lg in logs:
                 for line in _read16(lg).splitlines():
-                    if line.find(ea + " (") >= 0 and "MARIUS GRIDSTAT MT5" in line:
-                        mm = re.search(r"MARIUS GRIDSTAT MT5 (\S+)", line)
+                    if line.find(ea + " (") >= 0 and "MARIUS" in line.upper():
+                        mm = STAMP_RE.search(line.split("\t")[-1])
                         if mm: running = mm.group(1)
-            check(f"{term} {ea}: running == disk", running == disk,
+            check(f"{term} {ea}: running == disk", running is not None and running == disk,
                   f"running {running or 'no init banner in the last 3 logs'} | disk {disk}")
 
 # ---- (7) BENCH DATA FRESHNESS (2026-09-04): the runner logged in as a broker-expired demo for FOUR DAYS
