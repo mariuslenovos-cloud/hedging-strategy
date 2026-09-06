@@ -177,11 +177,19 @@ def tail_share(r, pct=0.01):
     return float(np.sort(a)[-k:].sum() / a.sum())
 
 
-def cell_stats(r, px_level, cost, zcrit):
+def cell_stats(r, px_level, cost, zcrit, mom_pairs=None):
     vr, zvr = variance_ratio(r, 5)
     ac, tac = corr_t(r[:-1], r[1:])
-    m5, t5 = past_k_signature(r, 5)
-    m20, t20 = past_k_signature(r, 20)
+    if mom_pairs is None:
+        m5, t5 = past_k_signature(r, 5)
+        m20, t20 = past_k_signature(r, 20)
+    else:
+        # 2026-09-06 fix: the past-k move must be the past k CLOCK bars of the full series with only the
+        # TARGET bar session-masked. Masking before lagging concatenated Asia bars across days and
+        # manufactured the SpotCrude 'Asia t_m20 -4.49' look (replay: t -0.5, net negative at cost).
+        (p5, n5), (p20, n20) = mom_pairs
+        m5, t5 = corr_t(p5, n5)
+        m20, t20 = corr_t(p20, n20)
     sigma = r.std() * px_level
     spc = sigma / cost if cost > 0 else np.nan
     # predictable component of one bar = |lag-1 autocorr| * sigma. The card rule is gross >= 3*C; Stage 1
@@ -194,6 +202,16 @@ def cell_stats(r, px_level, cost, zcrit):
         verdict = "none"
     else:
         verdict = "MR" if sign < 0 else "MOM"
+    # 2026-09-06: the past-5/20 momentum columns join the gate (the outside read's ask). A cell whose
+    # lag-1 gate is silent but whose past-k signature clears zcrit gets verdict MOM-k / MR-k (sign of corr),
+    # and its own predictability term |corr_k| * sigma / C (the regression of next bar on the past-k move).
+    if verdict == "none":
+        for k, (ck, tk) in ((20, (m20, t20)), (5, (m5, t5))):
+            if np.isfinite(tk) and abs(tk) >= zcrit:
+                verdict = ("MOM-%d" if ck > 0 else "MR-%d") % k
+                score = abs(tk)
+                ppc = abs(ck) * sigma / cost if cost > 0 else np.nan
+                break
     feasible = (verdict != "none") and np.isfinite(spc) and spc >= 1.0 and np.isfinite(ppc) and ppc >= 1.0
     return dict(n=len(r), vr5=vr, z_vr=zvr, ac1=ac, t_ac=tac, mom5=m5, t_m5=t5,
                 mom20=m20, t_m20=t20, sigma=sigma, sig_per_cost=spc, pred_per_cost=ppc,
@@ -234,13 +252,23 @@ def run(args):
             r_all, ts_all = gap_filtered_returns(px, mins)
             hours = pd.DatetimeIndex(ts_all).hour
             sessions = SESSIONS if mins < 240 else {"all": SESSIONS["all"]}
+            cs_all = np.cumsum(np.insert(r_all, 0, 0.0))
             for sname, hrs in sessions.items():
                 m = np.isin(hours, list(hrs))
                 r = r_all[m]
                 min_n = 60 if mins >= 240 else args.min_bars
                 if len(r) < min_n:
                     continue
-                st = cell_stats(r, level, cost, args.zcrit)
+                pairs = []
+                for k in (5, 20):
+                    if len(r_all) > k + 30:
+                        past = cs_all[k:-1] - cs_all[:-k - 1]
+                        nxt = r_all[k:]
+                        mk = m[k:]
+                        pairs.append((past[mk], nxt[mk]))
+                    else:
+                        pairs.append((np.array([]), np.array([])))
+                st = cell_stats(r, level, cost, args.zcrit, mom_pairs=tuple(pairs))
                 st.update(instrument=sym, horizon=hname, session=sname,
                           explored=EXPLORED.get((sym, hname), ""))
                 rows.append(st)
