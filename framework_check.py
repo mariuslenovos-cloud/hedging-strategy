@@ -285,6 +285,7 @@ WATCH_EAS = {   # EA file name -> attached on which terminals (the book as deplo
     "Marius GridStat MT5 OIL SOLID LOCKED": ("LIVE", "DEON", "DEMO"),
     "Marius GridStat MT5 GOLD LOCKED": ("DEMO",),
     "GOLD DAYRANK": ("DEMO",),
+    "Marius LongVol Bracket MT5 v1.0": ("DEMO",),   # 2026-09-06 demo forward (gates passed on the runner); FAILS until attached = the negative test
 }
 def _read16(path):
     for enc in ("utf-16", "cp1252"):

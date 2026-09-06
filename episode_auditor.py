@@ -63,6 +63,7 @@ ACCOUNTS = {
             59956: ("gold-DAYRANK",  "XAUUSD", 20.0),    # S29 K3x1.5 cell, side-by-side vs 59955 (2026-08-18)
             77181: ("oil-DAYRANK",   "SpotCrude", 10.0), # S29 K3x1.25 cell, side-by-side vs 77180
             88231: ("sessiondrift",  "XAUUSD", 50.0),   # SessionDrift v0.2 fwd test (no floor mechanism; 50 = ledger-only placeholder)
+            88241: ("longvol",       "XAUUSD", 50.0),   # LongVol bracket fwd test (2026-09-06; per-trade risk = 0.7 ATR, no floor; 50 = ledger-only placeholder)
         }),
     "DEON": dict(   # 2nd live acct — discovered FUNDED $1,965 on 2026-08-10; fib C attached 08-08
         path=r"C:\MT5 Pepperstone Instance Deon\terminal64.exe",
