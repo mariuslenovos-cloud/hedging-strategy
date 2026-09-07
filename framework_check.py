@@ -232,17 +232,47 @@ def check_ea_inputs():
 # 2026-09-06: the auditor's EVENT log only writes on episode closes/alerts, so "auditor log < 6h" failed on every
 # quiet weekend (a check that cries wolf trains the operator to ignore it). The auditor's per-CYCLE heartbeat is
 # family_heat.json (rewritten every 60s) -> that is the liveness signal; the event log gets a 7-day window.
+LEDGER = os.path.join(ADIR, "episode_ledger.csv")
+HEARTBEAT = os.path.join(ADIR, "family_heat.json")
+HEARTBEAT_MAX_H = 6
+LEDGER_HARD_MAX_H = 24 * 14
+
 FRESHNESS = [
-    ("episode ledger",    os.path.join(ADIR, "episode_ledger.csv"), 48),
     ("auditor heartbeat", os.path.join(ADIR, "family_heat.json"), 6),
     ("auditor event log", os.path.join(ADIR, "episode_auditor.log"), 24 * 7),
     ("morning brief",     max(glob.glob(os.path.join(ADIR, "morning_brief_*.txt")) or [""], default=""), 36),
     ("operator ledger",   os.path.join(ADIR, "operator_ledger.csv"), 24 * 14),
 ]
 
+def check_ledger_freshness():
+    """The episode ledger is EVENT-driven: a row appears only when an episode CLOSES. A flat
+    48h clock therefore FAILS every quiet weekend even though the auditor is sampling fine --
+    the same mis-specification fixed on episode_auditor.log on 2026-09-06, missed here. The
+    liveness signal is the auditor's 60s heartbeat (family_heat.json); the ledger fails only
+    when the auditor is not writing at all, or when it has been silent past the hard bound."""
+    if not os.path.exists(LEDGER):
+        check("episode ledger present", False, "missing"); return
+    age_h = (time.time() - os.path.getmtime(LEDGER)) / 3600
+    hb_h = ((time.time() - os.path.getmtime(HEARTBEAT)) / 3600
+            if os.path.exists(HEARTBEAT) else None)
+    if hb_h is None or hb_h > HEARTBEAT_MAX_H:
+        check("episode ledger current", False,
+              f"last row {age_h:.1f}h old and the auditor heartbeat is "
+              + ("MISSING" if hb_h is None else f"{hb_h:.1f}h old")
+              + " — no episode can be recorded while the auditor is down")
+    elif age_h > LEDGER_HARD_MAX_H:
+        check("episode ledger current", False,
+              f"no episode closed in {age_h/24:.1f}d though the auditor is alive "
+              f"({hb_h:.1f}h) — verify the ledger writer")
+    else:
+        check("episode ledger current", True,
+              f"no episode closed in {age_h:.1f}h (auditor heartbeat {hb_h:.1f}h = alive)")
+
+
 def check_freshness():
     """A monitor that stopped writing is indistinguishable from a calm market."""
     print("\n⑤ OUTPUT FRESHNESS (did the monitors actually run?)")
+    check_ledger_freshness()
     for name, path, max_h in FRESHNESS:
         if not path or not os.path.exists(path):
             check(f"{name} present", False, "missing"); continue
@@ -333,9 +363,25 @@ def check_bench_freshness():
     t = _read16(logs[-1])
     syncs = re.findall(r"history synchronized from \S+ to (\d{4}\.\d\d\.\d\d)", t)
     tl = sorted(glob.glob(os.path.join(RUNNER_DATA, "logs", "*.log")), key=os.path.getmtime)
-    bad_login = ("Invalid account" in _read16(tl[-1])) if tl else False
-    check("runner login valid (no 'Invalid account')", not bad_login,
-          "last terminal log shows an authorization failure" if bad_login else (os.path.basename(tl[-1]) if tl else ""))
+    # 2026-09-07: assert the MOST RECENT authorization outcome, not "no failure all day".
+    # Scanning the whole log meant one failed launch kept the check red for the rest of the
+    # day even after the cause was fixed and a clean run had happened -- the same cry-wolf
+    # disease as the old event-driven-file-on-a-clock check. A superseded failure is
+    # reported in the detail line; only a CURRENTLY refused login fails.
+    last_ok, n_fail = None, 0
+    if tl:
+        for ln in _read16(tl[-1]).splitlines():
+            if "authorization on" in ln and "failed" in ln:
+                last_ok, n_fail = False, n_fail + 1
+            elif re.search(r"':\s*authorized on ", ln):
+                last_ok = True
+    bad_login = (last_ok is False)
+    detail = (os.path.basename(tl[-1]) if tl else "no terminal log")
+    if bad_login:
+        detail = "the LAST authorization in " + detail + " was REFUSED (Invalid account)"
+    elif n_fail:
+        detail += f" (last auth OK; {n_fail} earlier failure(s) today, superseded)"
+    check("runner login valid (no 'Invalid account')", not bad_login, detail)
     if syncs:
         last = datetime.strptime(syncs[-1], "%Y.%m.%d")
         age = (datetime.now() - last).days
