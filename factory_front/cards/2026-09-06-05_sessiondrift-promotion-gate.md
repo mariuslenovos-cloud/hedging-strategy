@@ -59,7 +59,7 @@ from the deal history and the documented 08-29/08-31 record, never from that col
 ## How to check on 2026-09-20
 
 ```
-python sessiondrift_gate.py --rerun        # tester over 08-25->today on the PEP runner (EA defaults = demo config), then all 4 items
+python sessiondrift_gate.py --rerun        # tester over 08-25->today on the PEP runner, demo config forced by set file + asserted from the report, then all 4 items
 python sessiondrift_gate.py --tester <report.htm>   # same, against an existing report covering the demo window
 python sessiondrift_gate.py --live         # after a live attach: the rolling-28d removal rule on MAIN + DEON
 ```
