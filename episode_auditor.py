@@ -75,6 +75,8 @@ ACCOUNTS = {
             956272: ("mm-M1-m5atr",  "XAUUSD", 50.0),
             #--- 2026-09-11/15 MM instances (registered 2026-09-17 after framework check 2 flagged them unwatched)
             963769: ("mm-M1-tier2",  "XAUUSD", 50.0),   # tier>=2 gate, live orders, running
+            954801: ("mm-M1-t2one",  "XAUUSD", 50.0),   # tier>=2 SELL-only one trade to 0.5R (build M), registered 2026-09-21
+            978941: ("mm-M1-t2onen", "XAUUSD", 50.0),   # t2one inside the 22-08 window, registered 2026-09-21
             903865: ("mm-M1-s40a",   "XAUUSD", 50.0),   # s40 + M5-EMA200 align + 20-min hold + rungs 1/1.5/2, attached 2026-09-16
             903878: ("mm-M1-s40n",   "XAUUSD", 50.0),   # s40a + 22:00-08:59 server trade window (build L), registered 2026-09-17
             907634: ("mm-M1-m5be",   "XAUUSD", 50.0),   # RETIRED 2026-09-15 (user detached) -- kept so its 30d deals stay attributed

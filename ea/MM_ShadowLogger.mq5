@@ -27,7 +27,7 @@
 //--- framework_check reconcile running-vs-disk the same way it does for every
 //--- other watched EA. A silently-dead logger reads exactly like a quiet
 //--- market, which is how fib C lost a month.
-#define EA_BUILD "MM-SHADOW-2026-09-17-L"
+#define EA_BUILD "MM-SHADOW-2026-09-21-M"
 
 #include <MMEngine.mqh>
 #include <Trade\Trade.mqh>
@@ -121,6 +121,7 @@ input ENUM_TIMEFRAMES   InpAlignEmaTF      = PERIOD_M5; // trend-alignment EMA t
 input int               InpAlignEmaPeriod  = 0;     // 0=off: new ladder only if entry is on the EMA side (BUY above / SELL below)
 input int               InpTradeStartHour  = 0;     // build L: NEW ladders only from this server hour (inclusive)
 input int               InpTradeEndHour    = 23;    // ... to this server hour (inclusive); start>end wraps midnight; 0/23 = all hours
+input int               InpTradeSide       = 0;     // build M: REAL orders only for 0=both, 1=BUY fires, -1=SELL fires (shadow scores every fire regardless)
 //--- A book holding BOTH sides is locked: the two legs cancel, so it can only
 //--- be resolved by closing, never by waiting. Take it the moment it is green
 //--- rather than letting one side decay into the other's stop. Reverse-on-
@@ -291,8 +292,9 @@ int OnInit(void)
                (InpAlignEmaPeriod > 0
                 ? StringFormat("EMA%d(%s)", InpAlignEmaPeriod, EnumToString(InpAlignEmaTF))
                 : "off"), InpRunTag);
-   PrintFormat("CONFIG | MM | tradeWindow=%02d-%02d tag=%s",
-               InpTradeStartHour, InpTradeEndHour, InpRunTag);
+   PrintFormat("CONFIG | MM | tradeWindow=%02d-%02d side=%s tag=%s",
+               InpTradeStartHour, InpTradeEndHour,
+               (InpTradeSide>0?"BUY":InpTradeSide<0?"SELL":"both"), InpRunTag);
    PrintFormat("CONFIG | MM | logging to Files/%s", g_file);
    LoadState();
    return INIT_SUCCEEDED;
@@ -730,7 +732,7 @@ void TryFire(const int dir, const double entry, const double atr)
 
    //--- the shadow row above is already committed; the order below is a
    //--- side-effect and can fail without affecting the sample.
-   if(InpTrade)
+   if(InpTrade && (InpTradeSide == 0 || (InpTradeSide > 0) == (dir == MM_DIR_LONG)))
       OpenRealLadder(v);
 
    if(InpVerbose)
