@@ -316,6 +316,10 @@ WATCH_EAS = {   # EA file name -> attached on which terminals (the book as deplo
     "Marius GridStat MT5 GOLD LOCKED": ("DEMO",),
     "GOLD DAYRANK": ("DEMO",),
     "Marius LongVol Bracket MT5 v1.0": ("DEMO",),   # 2026-09-06 demo forward; attached 12:22 (banner verified), check generalised the same day
+    "MM_ShadowLogger": ("DEMO",),  # 2026-09-07 MM V5 forward test. Places NO orders (no trade functions compiled in),
+                                   # so it carries no magic and cannot reach the auditor -- but a silently-dead logger
+                                   # reads exactly like a quiet market, so running-vs-disk is the only thing guarding
+                                   # the claim that the 100-fire sample is real. Reads FAIL until it is attached.
 }
 STAMP_RE = re.compile(r"([A-Za-z0-9][A-Za-z0-9-]*20\d\d-\d\d-\d\d[A-Za-z0-9-]*)")
 def _disk_stamp(src):
@@ -360,8 +364,16 @@ def check_bench_freshness():
     logs = sorted(glob.glob(os.path.join(RUNNER_DATA, "Tester", "logs", "*.log")), key=os.path.getmtime)
     if not logs:
         check("runner tester log present", False, "no logs"); return
-    t = _read16(logs[-1])
-    syncs = re.findall(r"history synchronized from \S+ to (\d{4}\.\d\d\.\d\d)", t)
+    # 2026-09-18: take the FURTHEST sync reached across the last few tester logs, not the last line.
+    # A deliberate research run on a HISTORICAL window (e.g. the freeze-release A/B pinned to
+    # 2025.12.01->2026.08.19) syncs only to its own ToDate, which made this check read "30d stale"
+    # on a perfectly healthy runner -- it cannot tell a stale bench from a deliberate back-window.
+    # What the check actually wants to know is "can the runner still reach current bars", so take the
+    # max over the recent logs; a genuinely stale runner never produces a fresh sync line at all.
+    syncs = []
+    for lg in logs[-3:]:
+        syncs += re.findall(r"history synchronized from \S+ to (\d{4}\.\d\d\.\d\d)", _read16(lg))
+    syncs = sorted(syncs)
     tl = sorted(glob.glob(os.path.join(RUNNER_DATA, "logs", "*.log")), key=os.path.getmtime)
     # 2026-09-07: assert the MOST RECENT authorization outcome, not "no failure all day".
     # Scanning the whole log meant one failed launch kept the check red for the rest of the
@@ -411,7 +423,9 @@ def check_guard_shape():
               f"running MaxDailyLossPct={pct} (init {last_init})" if pct is not None else "no guard CONFIG line in the last 3 logs")
         check(f"{term} guard FreezeOnDailyTrip=true", frz is True, f"running FreezeOnDailyTrip={frz}")
         live = {}
-        for lg in sorted(glob.glob(os.path.join(data, "logs", "*.log")))[-3:]:
+        # 2026-09-17: dated journals ONLY, last 10 -- `metaeditor.log` sorts after the dates and was
+        # eating one of the three slots, so a guard loaded 3 days ago read as "0 instances" (cry-wolf)
+        for lg in sorted(f for f in glob.glob(os.path.join(data, "logs", "*.log")) if re.search(r"\d{8}\.log$", f))[-10:]:
             for line in _read16(lg).splitlines():
                 m = re.search(r"expert (" + re.escape(GUARD_EA) + r" \([^)]*\)) (loaded successfully|removed)", line)
                 # key by SYMBOL, not (symbol,period): a chart timeframe change re-inits the EA with a new period

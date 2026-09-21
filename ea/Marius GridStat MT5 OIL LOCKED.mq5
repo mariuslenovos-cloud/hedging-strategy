@@ -20,7 +20,7 @@
 #property copyright "Marius"
 #property version   "1.00"
 
-#define EA_BUILD_VERSION "MT5-2026-07-12-S26-OIL-RSQ2-LOCKED"
+#define EA_BUILD_VERSION "MT5-2026-07-23-OIL-RSQ2-STRENGTHGATE"
 #define MAX_PENDING 5000
 
 #include <Trade/Trade.mqh>
@@ -45,6 +45,13 @@ const double GM_GapMult   = 2.0;   // gap detector: jump >= this * avgRange -> p
 const int GM_GapMode   = 0;     // 0 = original |Open-PrevClose| (MT4-equiv, ~dead on continuous CFDs); 1 = |Close-PrevClose| close-to-close jump (activates the runner detector on gold/oil)  // LOCKED (was input)
 const double GM_FastMult  = 4.6;   // fast-move detector: |Close[i+3]-Close[i]| >= this * avgRange -> period 4  // LOCKED (was input)
 const int goldminershift = 1;   // evaluate signal on this shift (1 = last closed bar)  // LOCKED (was input)
+//--- SIGNAL-STRENGTH gate (2026-07-23 study): the WEAKEST Goldminer signals (barely past the band)
+//    are the losers across gold/oil/silver buys (gold shallow buys 38%/-0.15R; silver monotonic 52->71%;
+//    oil deep 64%/+0.15R vs shallow 52%/+0.02R). This gates a NEW-basket signal on its PENETRATION depth
+//    past the band = direction-normalized strength (BUY: wpr-upper; SELL: lower-wpr). Rescue bypasses.
+//    Default OFF (base unchanged). Validate every-tick per symbol; shadow win-rate != grid profit -> tester decides.
+input bool UseSignalStrengthGate = false; // ON = skip signals with penetration < SignalStrengthMin
+input double SignalStrengthMin      = 0;    // min penetration past the band (wpr units); 0 = no cut
 
 //--- Feature-importance instrumentation (UNIVERSAL -- improves gold/silver selection too, not just oil)
 //    Logs the features the coarse DIR|SESSION|ATR fingerprint throws away, so feature-importance
@@ -703,6 +710,13 @@ void OnTick()
       if(!known)                skip = "setupUnknown";
       else if(ns < MinSamples)  skip = "lowSamples(n="+IntegerToString(ns)+")";
       else if(wr < MinWinRate)  skip = "lowWinRate("+DoubleToString(wr,2)+"<"+DoubleToString(MinWinRate,2)+")";
+   }
+   if(skip=="" && !rescue && UseSignalStrengthGate)        // cut the weak signals (barely past the band)
+   {
+      double gmUp = (GM_UpperBand > 0) ? GM_UpperBand : (grisk + 67);
+      double gmLo = (GM_LowerBand > 0) ? GM_LowerBand : (33 - grisk);
+      double pen  = (dir==ORDER_TYPE_BUY) ? (wpr - gmUp) : (gmLo - wpr);   // penetration past the band
+      if(pen < SignalStrengthMin) skip = "weakSignal(pen="+DoubleToString(pen,1)+"<"+DoubleToString(SignalStrengthMin,1)+")";
    }
    if(skip=="" && IsOverextended()) skip = "overextended";
    double szMult = LookupSizing(key);                      // 1.0 if table off; 0 = negative/unknown setup

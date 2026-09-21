@@ -64,6 +64,25 @@ ACCOUNTS = {
             77181: ("oil-DAYRANK",   "SpotCrude", 10.0), # S29 K3x1.25 cell, side-by-side vs 77180
             88231: ("sessiondrift",  "XAUUSD", 50.0),   # SessionDrift v0.2 fwd test (no floor mechanism; 50 = ledger-only placeholder)
             88241: ("longvol",       "XAUUSD", 50.0),   # LongVol bracket fwd test (2026-09-06; per-trade risk = 0.7 ATR, no floor; 50 = ledger-only placeholder)
+            # MM shadow logger, live-order mode (2026-09-08). Magic is derived
+            # per instance from symbol+TF+run tag, so each hypothesis is a
+            # separate stream in the ledger and none can be confused for another.
+            # Each fire places THREE rung positions sharing one stop; risk per
+            # ladder = 3 x lots x stop distance, no floor mechanism -> the 50.0
+            # is a ledger-only placeholder, same convention as sessiondrift.
+            938413: ("mm-M1-run1",   "XAUUSD", 50.0),
+            985139: ("mm-M5-m5",     "XAUUSD", 50.0),
+            956272: ("mm-M1-m5atr",  "XAUUSD", 50.0),
+            #--- 2026-09-11/15 MM instances (registered 2026-09-17 after framework check 2 flagged them unwatched)
+            963769: ("mm-M1-tier2",  "XAUUSD", 50.0),   # tier>=2 gate, live orders, running
+            903865: ("mm-M1-s40a",   "XAUUSD", 50.0),   # s40 + M5-EMA200 align + 20-min hold + rungs 1/1.5/2, attached 2026-09-16
+            903878: ("mm-M1-s40n",   "XAUUSD", 50.0),   # s40a + 22:00-08:59 server trade window (build L), registered 2026-09-17
+            907634: ("mm-M1-m5be",   "XAUUSD", 50.0),   # RETIRED 2026-09-15 (user detached) -- kept so its 30d deals stay attributed
+            985578: ("mm-M1-wide",   "XAUUSD", 50.0),   # RETIRED 2026-09-15 (user detached) -- kept so its 30d deals stay attributed
+            #--- 2026-09-10 trigger test: same engine, sensitivity 4.0 / ATR 20
+            #--- instead of the vendor-fitted 2.5/10. Separate magic so its deals
+            #--- never mix with the m5atr forward test running beside it.
+            905928: ("mm-M1-s40",    "XAUUSD", 50.0),
         }),
     "DEON": dict(   # 2nd live acct — discovered FUNDED $1,965 on 2026-08-10; fib C attached 08-08
         path=r"C:\MT5 Pepperstone Instance Deon\terminal64.exe",

@@ -1,0 +1,172 @@
+<!doctype html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><meta http-equiv="refresh" content="60">
+<title>Mission Control</title><style>
+:root{--gold:#eda100;--oil:#008300;--fibc:#2a78d6;--silver:#e87ba4;--eq:#2a78d6;
+  --good:#0ca30c;--warning:#fab219;--serious:#ec835a;--critical:#d03b3b;--cat-blue:#2a78d6;
+  --plane:#f9f9f7;--surface:#fcfcfb;--ink:#0b0b0b;--ink2:#52514e;--muted:#898781;
+  --grid:#e1e0d9;--border:rgba(11,11,11,.10);--up:#006300;--dn:#c0392b;}
+@media(prefers-color-scheme:dark){:root:where(:not([data-theme=light])){
+  --gold:#c98500;--oil:#008300;--fibc:#3987e5;--silver:#d55181;--eq:#3987e5;
+  --plane:#0d0d0d;--surface:#1a1a19;--ink:#fff;--ink2:#c3c2b7;--muted:#898781;
+  --grid:#2c2c2a;--border:rgba(255,255,255,.10);--up:#0ca30c;--dn:#e66767;}}
+:root[data-theme=dark]{--gold:#c98500;--oil:#008300;--fibc:#3987e5;--silver:#d55181;--eq:#3987e5;
+  --plane:#0d0d0d;--surface:#1a1a19;--ink:#fff;--ink2:#c3c2b7;--muted:#898781;
+  --grid:#2c2c2a;--border:rgba(255,255,255,.10);--up:#0ca30c;--dn:#e66767;}
+*{box-sizing:border-box}
+body{margin:0;background:var(--plane);color:var(--ink);font:14px/1.4 system-ui,-apple-system,"Segoe UI",sans-serif;
+  padding:20px;max-width:1180px;margin:0 auto}
+.top{display:flex;align-items:baseline;gap:14px;margin-bottom:16px}
+.top h1{font-size:19px;margin:0;letter-spacing:.06em;font-weight:700}
+.top .sub{color:var(--muted);font-size:12.5px}
+.top .rt{margin-left:auto;color:var(--muted);font-size:12px;font-variant-numeric:tabular-nums}
+.grid5{display:grid;grid-template-columns:repeat(6,1fr);gap:12px;margin-bottom:14px}
+.tile{background:var(--surface);border:1px solid var(--border);border-radius:12px;padding:14px 16px}
+.tl{color:var(--muted);font-size:11.5px;text-transform:uppercase;letter-spacing:.05em}
+.tv{font-size:23px;font-weight:650;margin-top:3px}.ts{color:var(--ink2);font-size:12px;margin-top:2px}
+.up{color:var(--up)}.dn{color:var(--dn)}
+.panel{background:var(--surface);border:1px solid var(--border);border-radius:14px;padding:16px 18px;margin-bottom:14px}
+.ph{font-size:12px;text-transform:uppercase;letter-spacing:.06em;color:var(--muted);margin:0 0 12px}
+#eq{width:100%;height:210px;display:block;overflow:visible}
+.tip{position:absolute;pointer-events:none;background:var(--ink);color:var(--surface);font-size:11.5px;
+  padding:5px 8px;border-radius:7px;transform:translate(-50%,-135%);white-space:nowrap;display:none;
+  font-variant-numeric:tabular-nums;z-index:9}
+.grid4{display:grid;grid-template-columns:repeat(4,1fr);gap:12px}
+.card{background:var(--surface);border:1px solid var(--border);border-radius:12px;padding:13px 15px;position:relative;overflow:hidden}
+.card:before{content:"";position:absolute;left:0;top:0;bottom:0;width:3px;background:var(--fibc)}
+.card.gold:before{background:var(--gold)}.card.oil:before{background:var(--oil)}
+.card.fibc:before{background:var(--fibc)}.card.silver:before{background:var(--silver)}
+.card.pausd{opacity:.55}
+.chead{display:flex;align-items:center;gap:7px;margin-bottom:7px}
+.dot{width:9px;height:9px;border-radius:50%}.cname{font-weight:650;font-size:13.5px}
+.badge{margin-left:auto;font-size:10.5px;padding:2px 7px;border-radius:20px;border:1px solid var(--border);color:var(--ink2)}
+.badge.good{color:var(--good);border-color:var(--good)}.badge.serious{color:var(--serious);border-color:var(--serious)}
+.badge.warning{color:var(--warning);border-color:var(--warning)}.badge.muted{color:var(--muted)}
+.cnet{font-size:21px;font-weight:650}.crow{display:flex;gap:12px;color:var(--ink2);font-size:12px;margin-top:3px}
+.cfoot{color:var(--muted);font-size:11px;margin-top:6px}
+table{width:100%;border-collapse:collapse;font-size:13px}
+th{text-align:left;color:var(--muted);font-size:11px;text-transform:uppercase;letter-spacing:.04em;padding:0 8px 8px;font-weight:600}
+td{padding:7px 8px;border-top:1px solid var(--grid)}.num{text-align:right;font-variant-numeric:tabular-nums}
+.mut{color:var(--muted);font-size:12px}
+.board{display:grid;grid-template-columns:repeat(4,1fr);gap:12px}
+.bcol .bth{font-size:11.5px;font-weight:650;margin-bottom:8px;color:var(--ink2)}
+.chip{background:var(--plane);border:1px solid var(--border);border-radius:9px;padding:7px 9px;margin-bottom:7px}
+.chip .cs{font-size:12px}.chip .cf{display:block;font-size:11.5px;font-weight:600;margin:1px 0}
+.chip .cx{display:block;font-size:10.5px;color:var(--muted);font-variant-numeric:tabular-nums}
+.chip.good{border-left:3px solid var(--good)}.chip.serious{border-left:3px solid var(--serious)}
+.chip.warning{border-left:3px solid var(--warning)}.chip.cat-blue{border-left:3px solid var(--cat-blue)}
+.chip.muted{opacity:.7}
+.chip.glow{border:1px solid var(--good);box-shadow:0 0 0 1px var(--good);animation:pulse 1.6s ease-in-out infinite}
+@keyframes pulse{0%,100%{box-shadow:0 0 0 1px var(--good),0 0 4px rgba(12,163,12,.15)}50%{box-shadow:0 0 0 1px var(--good),0 0 16px rgba(12,163,12,.55)}}
+.prog{height:4px;background:var(--grid);border-radius:3px;margin-top:6px;overflow:hidden}
+.prog .pf{height:100%;background:var(--cat-blue);border-radius:3px}
+.pn{display:block;font-size:9.5px;color:var(--muted);margin-top:2px}
+.gauge{position:relative;height:20px;width:150px}
+.gauge .track{position:absolute;top:9px;left:0;right:0;height:3px;border-radius:2px;background:var(--grid)}
+.gauge .mk{position:absolute;top:4px;width:2px;height:13px;transform:translateX(-1px)}
+.gauge .mk.tp{background:var(--good)}.gauge .mk.rc{background:var(--serious)}
+.gauge .mk.be{background:var(--muted);opacity:.6}
+.gauge .mk.now{top:6px;width:9px;height:9px;border-radius:50%;transform:translateX(-4.5px);border:2px solid var(--surface)}
+.gauge .mk.now.up{background:var(--good)}.gauge .mk.now.dn{background:var(--dn)}
+.factory{display:flex;flex-wrap:wrap;gap:18px;color:var(--ink2);font-size:12px;
+  background:var(--surface);border:1px solid var(--border);border-radius:12px;padding:11px 16px}
+@media(max-width:820px){.grid5,.grid4,.board{grid-template-columns:repeat(2,1fr)}}
+</style></head><body>
+<div class="top"><h1>◆ MISSION CONTROL</h1>
+  <span class="sub">Pepperstone 51511633 · PepperstoneBS-MT5-Live01</span>
+  <span class="rt">2026-09-21 07:30:29</span></div>
+<div class="grid5"><div class="tile"><div class="tl">Balance</div><div class="tv ">$2,607.16</div><div class="ts">since $3,000 deposit</div></div><div class="tile"><div class="tl">Total P&amp;L</div><div class="tv up">+$337.28</div><div class="ts">+14.9%</div></div><div class="tile"><div class="tl">Equity</div><div class="tv dn">$2,474.70</div><div class="ts">floating $-132.46</div></div><div class="tile"><div class="tl">Book DD</div><div class="tv dn">$450.24</div><div class="ts">16.5% max · now $248</div></div><div class="tile"><div class="tl">Today</div><div class="tv up">+$0.00</div><div class="ts">realized</div></div><div class="tile"><div class="tl">This week</div><div class="tv up">+$98.43</div><div class="ts">realized</div></div></div>
+<div class="panel"><div class="ph">Book equity — since go-live</div><svg id="eq" viewBox="0 0 1000 240" preserveAspectRatio="none">
+          <defs><linearGradient id="eqg" x1="0" x2="0" y1="0" y2="1">
+            <stop offset="0" stop-color="var(--eq)" stop-opacity="0.22"/>
+            <stop offset="1" stop-color="var(--eq)" stop-opacity="0"/></linearGradient></defs>
+          <path d="M6.0,234 L6.0,138.9 L30.7,116.9 L199.2,97.4 L199.2,94.9 L199.2,99.5 L207.4,97.4 L207.9,76.0 L212.3,130.8 L212.3,193.1 L212.3,234.0 L212.3,202.2 L212.3,186.2 L212.3,185.2 L215.5,185.2 L254.9,171.3 L254.9,156.9 L267.0,153.8 L364.8,136.3 L402.3,116.0 L408.6,95.1 L408.6,93.6 L408.6,99.3 L420.3,86.9 L420.3,81.7 L441.2,68.6 L441.2,66.7 L441.2,53.1 L441.2,44.3 L441.2,28.0 L441.2,63.5 L465.2,63.4 L564.8,51.1 L616.7,62.7 L616.7,83.9 L616.7,101.6 L616.7,126.3 L616.7,126.5 L640.9,127.2 L666.0,129.0 L666.0,121.9 L666.0,121.8 L787.6,109.7 L821.1,99.6 L844.0,70.4 L844.0,65.5 L844.0,70.2 L844.0,81.8 L844.0,80.1 L959.1,67.7 L959.1,62.6 L994.0,13.8 L994.0,6.0 L994.0,14.6 L994.0,26.6 L994.0,45.5 L994.0,234 Z" fill="url(#eqg)"/>
+          <path d="M6.0,138.9 L30.7,116.9 L199.2,97.4 L199.2,94.9 L199.2,99.5 L207.4,97.4 L207.9,76.0 L212.3,130.8 L212.3,193.1 L212.3,234.0 L212.3,202.2 L212.3,186.2 L212.3,185.2 L215.5,185.2 L254.9,171.3 L254.9,156.9 L267.0,153.8 L364.8,136.3 L402.3,116.0 L408.6,95.1 L408.6,93.6 L408.6,99.3 L420.3,86.9 L420.3,81.7 L441.2,68.6 L441.2,66.7 L441.2,53.1 L441.2,44.3 L441.2,28.0 L441.2,63.5 L465.2,63.4 L564.8,51.1 L616.7,62.7 L616.7,83.9 L616.7,101.6 L616.7,126.3 L616.7,126.5 L640.9,127.2 L666.0,129.0 L666.0,121.9 L666.0,121.8 L787.6,109.7 L821.1,99.6 L844.0,70.4 L844.0,65.5 L844.0,70.2 L844.0,81.8 L844.0,80.1 L959.1,67.7 L959.1,62.6 L994.0,13.8 L994.0,6.0 L994.0,14.6 L994.0,26.6 L994.0,45.5" fill="none" stroke="var(--eq)" stroke-width="2.5" vector-effect="non-scaling-stroke"/>
+          <line id="eqx" y1="6" y2="234" stroke="var(--muted)" stroke-width="1" style="display:none"/>
+          <circle id="eqd" r="4.5" fill="var(--eq)" stroke="var(--surface)" stroke-width="2" style="display:none"/>
+        </svg><div id="eqtip" class="tip"></div><script>window.__EQ=[[6.0, 138.88246699289073, "08-12 08:16", 2343.53], [30.746452219566667, 116.85993906379834, "08-13 05:35", 2406.3], [199.19929736577467, 97.42664573908229, "08-19 06:38", 2461.69], [199.19929736577467, 94.93564767796147, "08-19 06:38", 2468.79], [199.19929736577467, 99.51417228326113, "08-19 06:38", 2455.74], [207.4332758688242, 97.39857815529504, "08-19 13:44", 2461.77], [207.94973422664526, 76.03563844520369, "08-19 14:10", 2522.66], [212.332694693675, 130.82005354999535, "08-19 17:57", 2366.51], [212.332694693675, 193.11254731788387, "08-19 17:57", 2188.96], [212.332694693675, 234.0, "08-19 17:57", 2072.42], [212.33301727853308, 202.22398670482883, "08-19 17:57", 2162.99], [212.33301727853308, 186.24651463392112, "08-19 17:57", 2208.53], [212.33301727853308, 185.1869633459514, "08-19 17:57", 2211.55], [215.48305841789758, 185.2466069614994, "08-19 20:40", 2211.38], [254.8900246836187, 171.30754316314284, "08-21 06:36", 2251.11], [254.8900246836187, 156.89133044040267, "08-21 06:36", 2292.2], [267.0430866277475, 153.81442156772238, "08-21 17:03", 2300.97], [364.80468596951766, 136.26867325270064, "08-25 05:14", 2350.98], [402.3287244184983, 115.96879327855231, "08-26 13:33", 2408.84], [408.633968054957, 95.13212076447238, "08-26 18:59", 2468.23], [408.63429063981505, 93.58489520819879, "08-26 18:59", 2472.64], [408.63429063981505, 99.30717385282992, "08-26 18:59", 2456.33], [420.3296046702974, 86.86972578709259, "08-27 05:03", 2491.78], [420.3296046702974, 81.71581571415393, "08-27 05:03", 2506.47], [441.1866512557301, 68.56264426184106, "08-27 23:01", 2543.96], [441.1866512557301, 66.7452682116149, "08-27 23:01", 2549.14], [441.1866512557301, 53.13599852275888, "08-27 23:01", 2587.93], [441.1869738405882, 44.27716738989949, "08-27 23:01", 2613.18], [441.1869738405882, 27.96639276151791, "08-27 23:01", 2659.67], [441.1869738405882, 63.450835564583116, "08-27 23:01", 2558.53], [465.18986796223015, 63.41575108484906, "08-28 19:41", 2558.63], [564.8295563478692, 51.12214938602165, "09-01 09:29", 2593.67], [616.7082983975238, 62.65441787461913, "09-03 06:09", 2560.8], [616.7082983975238, 83.91912104145513, "09-03 06:09", 2500.19], [616.7082983975238, 101.60871572338664, "09-03 06:09", 2449.77], [616.7082983975238, 126.32573169605759, "09-03 06:09", 2379.32], [616.708620982382, 126.49062875080794, "09-03 06:09", 2378.85], [640.9105499614726, 127.23792816914424, "09-04 03:00", 2376.72], [665.966361059959, 129.04477887545008, "09-05 00:34", 2371.57], [665.9670062296752, 121.92613793740192, "09-05 00:34", 2391.86], [665.9670062296752, 121.83842673806667, "09-05 00:34", 2392.11], [787.6018205801304, 109.69568830209596, "09-09 09:19", 2426.72], [821.0545155350077, 99.62293417043682, "09-10 14:07", 2455.43], [843.9635244028262, 70.35896962422677, "09-11 09:51", 2538.84], [843.9638469876843, 65.53836210876196, "09-11 09:51", 2552.58], [843.9638469876843, 70.19758101744989, "09-11 09:51", 2539.3], [843.9638469876843, 81.82106915335615, "09-11 09:51", 2506.17], [844.0170734892711, 80.07035361462479, "09-11 09:53", 2511.16], [959.1330930272043, 67.74166743606315, "09-15 13:01", 2546.3], [959.1330930272043, 62.56670667528391, "09-15 13:01", 2561.05], [993.999677415142, 13.792262948942863, "09-16 19:02", 2700.07], [993.999677415142, 6.000000000000028, "09-16 19:02", 2722.28], [994.0, 14.578155294986686, "09-16 19:02", 2697.83], [994.0, 26.55599667620723, "09-16 19:02", 2663.69], [994.0, 45.53670021235345, "09-16 19:02", 2609.59]];</script></div>
+<div class="panel"><div class="ph">Streams</div><div class="grid4"><div class="card grey">
+          <div class="chead"><span class="dot" style="background:var(--grey)"></span>
+            <span class="cname">GUARD</span>
+            <span class="badge serious">below anchor</span></div>
+          <div class="cnet dn">$-2.13</div>
+          <div class="crow"><span>1 closes</span><span>0% win</span><span>PF 0.00</span></div>
+          <div class="cfoot">Book Guard v2 hedge legs (account-level, any symbol)</div>
+        </div><div class="card gold">
+          <div class="chead"><span class="dot" style="background:var(--gold)"></span>
+            <span class="cname">GOLD</span>
+            <span class="badge good">positive</span></div>
+          <div class="cnet up">+$151.80</div>
+          <div class="crow"><span>28 closes</span><span>54% win</span><span>PF 1.38</span></div>
+          <div class="cfoot">SF12C2 · PF 3.39 · hand-closed 8× $-194 → EA net +$346</div>
+        </div><div class="card oil">
+          <div class="chead"><span class="dot" style="background:var(--oil)"></span>
+            <span class="cname">OIL</span>
+            <span class="badge good">on track</span></div>
+          <div class="cnet up">+$280.90</div>
+          <div class="crow"><span>16 closes</span><span>88% win</span><span>PF 3.64</span></div>
+          <div class="cfoot">SOLID4 · PF 1.47 · 3 open ($-132) · hand-closed 7× +$110 → EA net +$171</div>
+        </div><div class="card fibc">
+          <div class="chead"><span class="dot" style="background:var(--fibc)"></span>
+            <span class="cname">fib C</span>
+            <span class="badge serious">below anchor</span></div>
+          <div class="cnet dn">$-90.86</div>
+          <div class="crow"><span>10 closes</span><span>70% win</span><span>PF 0.80</span></div>
+          <div class="cfoot">LOCKED · PF 1.72 · hand-closed 5× $-354 → EA net +$263</div>
+        </div><div class="card silver pausd">
+          <div class="chead"><span class="dot" style="background:var(--silver)"></span>
+            <span class="cname">SILVER</span>
+            <span class="badge muted">paused</span></div>
+          <div class="cnet up">+$0.00</div>
+          <div class="crow"><span>0 closes</span><span>0% win</span><span>PF 0.00</span></div>
+          <div class="cfoot">PAUSED</div>
+        </div></div></div>
+<div class="panel"><div class="ph">Continuous-improvement engine — the four layers</div><div class="grid4"><div class="card"><div class="chead"><span class="cname">① Regime Sentinel</span><span class="badge good">INSIDE</span></div><div class="crow" style="justify-content:space-between"><span>GOLD: INSIDE</span><span class="mut">ATR p34 (0.9× tested) · vel p55</span></div><div class="crow" style="justify-content:space-between"><span>OIL: INSIDE</span><span class="mut">ATR p59 (1.8× tested) · vel p73</span></div><div class="crow" style="justify-content:space-between"><span>vs Dec→Jul-13 validated window</span><span class="mut">recalibrate what falls outside</span></div></div><div class="card"><div class="chead"><span class="cname">② Episode Auditor</span><span class="badge good">LIVE</span></div><div class="crow" style="justify-content:space-between"><span>demo twin (gap-meter)</span><span class="mut">bal $5,651 · eq $5,008</span></div><div class="crow" style="justify-content:space-between"><span>oil SOLID</span><span class="mut">6 open · -492</span></div><div class="crow" style="justify-content:space-between"><span>magic 77181</span><span class="mut">1 open · -102</span></div><div class="crow" style="justify-content:space-between"><span>magic 88241</span><span class="mut">1 open · -23</span></div><div class="crow" style="justify-content:space-between"><span>magic 903865</span><span class="mut">3 open · -10</span></div><div class="crow" style="justify-content:space-between"><span>magic 903878</span><span class="mut">3 open · -10</span></div><div class="crow" style="justify-content:space-between"><span>magic 905928</span><span class="mut">2 open · -7</span></div><div class="crow" style="justify-content:space-between"><span>auditor loop</span><span class="mut">sampling (60s)</span></div><div class="crow" style="justify-content:space-between"><span>episodes recorded: 217</span><span class="mut">knife-edge/floor last 20: 0</span></div><div class="crow" style="justify-content:space-between"><span>last: [DEMO] mm-M1-s40n</span><span class="mut">net -48 · margin 49.78pp · healthy</span></div><div class="crow" style="justify-content:space-between"><span>family heat SpotCrude</span><span class="mut">+0.00 lots / limit 0.9</span></div></div><div class="card"><div class="chead"><span class="cname">③ Rolling Re-test</span><span class="badge good">LIVE</span></div><div class="crow" style="justify-content:space-between"><span>fibC-XC</span><span class="mut">net +356 RF 0.6 · baseline-building</span></div><div class="crow" style="justify-content:space-between"><span>GOLD-FIBC8</span><span class="mut">net -1,212 RF -0.5 · NEGATIVE — watch</span></div><div class="crow" style="justify-content:space-between"><span>OIL-SOLID</span><span class="mut">net +415 RF 1.19 · baseline-building</span></div><div class="crow" style="justify-content:space-between"><span>fibC-SR6@PEP</span><span class="mut">net +41 RF 0.19 · DEGRADED — decision item</span></div><div class="crow" style="justify-content:space-between"><span>fibC-XC@PEP</span><span class="mut">net -230 RF -0.31 · NEGATIVE — watch</span></div><div class="crow" style="justify-content:space-between"><span>GOLD-FIBC8@PEP</span><span class="mut">net -527 RF -0.19 · NEGATIVE — watch</span></div><div class="crow" style="justify-content:space-between"><span>OIL-SOLID@PEP</span><span class="mut">net -31 RF -0.09 · DEGRADED — decision item</span></div><div class="crow" style="justify-content:space-between"><span>GOLD-HALF-live@PEP</span><span class="mut">net +1,064 RF 0.92 · OK</span></div><div class="crow" style="justify-content:space-between"><span>GOLD-FULL-demo@PEP</span><span class="mut">net +1,564 RF 0.69 · DEGRADED — decision item</span></div><div class="crow" style="justify-content:space-between"><span>last run</span><span class="mut">2026-09-19</span></div></div><div class="card"><div class="chead"><span class="cname">④ Data / Factory</span><span class="badge serious">STALE</span></div><div class="crow" style="justify-content:space-between"><span>GOLD gate DB</span><span class="mut">105d ago (audited 08-08: won its A/B, retained)</span></div><div class="crow" style="justify-content:space-between"><span>OIL gate DB</span><span class="mut">53d ago</span></div><div class="crow" style="justify-content:space-between"><span>SILVER gate DB</span><span class="mut">103d ago</span></div><div class="crow" style="justify-content:space-between"><span>daily loop</span><span class="mut">today</span></div><div class="crow" style="justify-content:space-between"><span>miner</span><span class="mut">mining LIVE + DEMO (nightly register)</span></div></div></div></div>
+<div class="panel"><div class="ph">Live positions</div>
+  <table><tr><th>symbol</th><th>side</th><th class="num">lots</th><th class="num">entry</th>
+    <th class="num">now</th><th class="num">TP</th><th class="num">float</th><th>next level</th></tr>
+    <tr><td><b>SpotCrude</b></td><td>SELL</td>
+          <td class="num">0.4</td><td class="num">101.335</td><td class="num">98.831</td>
+          <td class="num">—</td><td class="num up">+99.04</td>
+          <td><div class="gauge"><div class="track"></div><span class="mk rc" style="left:99%" title="recovery add 103.335"></span><span class="mk be" style="left:56%" title="entry 101.335"></span><span class="mk now up" style="left:1%" title="now 98.831"></span></div></td></tr><tr><td><b>SpotCrude</b></td><td>BUY</td>
+          <td class="num">0.2</td><td class="num">104.038</td><td class="num">98.831</td>
+          <td class="num">107.201</td><td class="num dn">-104.14</td>
+          <td><div class="gauge"><div class="track"></div><span class="mk tp" style="left:99%" title="TP/escape 107.201"></span><span class="mk rc" style="left:38%" title="recovery add 102.038"></span><span class="mk be" style="left:62%" title="entry 104.038"></span><span class="mk now dn" style="left:1%" title="now 98.831"></span></div></td></tr><tr><td><b>SpotCrude</b></td><td>BUY</td>
+          <td class="num">0.2</td><td class="num">105.19</td><td class="num">98.831</td>
+          <td class="num">108.313</td><td class="num dn">-127.18</td>
+          <td><div class="gauge"><div class="track"></div><span class="mk tp" style="left:99%" title="TP/escape 108.313"></span><span class="mk rc" style="left:46%" title="recovery add 103.190"></span><span class="mk be" style="left:67%" title="entry 105.19"></span><span class="mk now dn" style="left:1%" title="now 98.831"></span></div></td></tr></table></div>
+<div class="panel"><div class="ph">Fingerprint register — lifecycle</div><div class="board"><div class="bcol"><div class="bth">✅ GOOD — size up</div><div class="chip muted"><span class="cf mut">none</span></div></div><div class="bcol"><div class="bth">📈 Trading</div><div class="chip cat-blue"><span class="cs">📈</span>
+              <span class="cf">OIL · BUY|HR_NY|ATR_NORM</span>
+              <span class="cx">ACCUMULATE · live 9 · 863.01</span><div class="prog"><div class="pf" style="width:60%"></div></div><span class="pn">9/15 to size-up</span></div><div class="chip cat-blue"><span class="cs">📈</span>
+              <span class="cf">GOLD · SELL|HR_OVL|ATR_NORM</span>
+              <span class="cx">ACCUMULATE · live 9 · 368.63</span><div class="prog"><div class="pf" style="width:60%"></div></div><span class="pn">9/15 to size-up</span></div><div class="chip cat-blue"><span class="cs">📈</span>
+              <span class="cf">GOLD · BUY|HR_NY|ATR_NORM</span>
+              <span class="cx">ACCUMULATE · live 4 · 251.90</span><div class="prog"><div class="pf" style="width:27%"></div></div><span class="pn">4/15 to size-up</span></div><div class="chip cat-blue"><span class="cs">📈</span>
+              <span class="cf">GOLD · BUY|HR_NY|ATR_EXP</span>
+              <span class="cx">ACCUMULATE · live 3 · 197.86</span><div class="prog"><div class="pf" style="width:20%"></div></div><span class="pn">3/15 to size-up</span></div><div class="chip cat-blue"><span class="cs">📈</span>
+              <span class="cf">GOLD · SELL|HR_OVL|ATR_EXP</span>
+              <span class="cx">ACCUMULATE · live 1 · 102.36</span><div class="prog"><div class="pf" style="width:7%"></div></div><span class="pn">1/15 to size-up</span></div></div><div class="bcol"><div class="bth">🆕 New / candidates</div><div class="chip muted"><span class="cs">·</span>
+              <span class="cf">GOLD · BUY|HR_OVL|ATR_NORM</span>
+              <span class="cx">NEW-thin · live 0 · 54%</span></div><div class="chip muted"><span class="cs">·</span>
+              <span class="cf">GOLD · SELL|HR_NY|ATR_NORM</span>
+              <span class="cx">NEW-thin · live 0 · 53%</span></div><div class="chip muted"><span class="cs">·</span>
+              <span class="cf">GOLD · BUY|HR_NY|ATR_COMP</span>
+              <span class="cx">NEW-thin · live 0 · 53%</span></div><div class="chip muted"><span class="cs">·</span>
+              <span class="cf">GOLD · BUY|HR_OVL|ATR_EXP</span>
+              <span class="cx">NEW-thin · live 0 · 48%</span></div><div class="chip muted"><span class="cs">·</span>
+              <span class="cf">GOLD · BUY|HR_LDN|ATR_NORM</span>
+              <span class="cx">NEW-thin · live 0 · 44%</span></div><div class="chip muted"><span class="cs">·</span>
+              <span class="cf">GOLD · BUY|HR_LDN|ATR_EXP</span>
+              <span class="cx">NEW-thin · live 0 · 44%</span></div></div><div class="bcol"><div class="bth">🔻 Review / drop</div><div class="chip muted"><span class="cf mut">none</span></div></div></div></div>
+<div class="factory"><span>🆕 0 onboard candidates · 🔻 0 to review</span><span>🗄 3 DB versions</span><span>🔬 shadow refresh 9h ago</span><span>⏱ daily loop 9h ago</span><span>🟢 live · auto-trade on</span></div>
+<script>
+var svg=document.getElementById('eq');
+if(svg&&window.__EQ){var D=window.__EQ,x=document.getElementById('eqx'),dot=document.getElementById('eqd'),tip=document.getElementById('eqtip');
+var vb=svg.viewBox.baseVal;
+svg.addEventListener('mousemove',function(e){var r=svg.getBoundingClientRect();var mx=(e.clientX-r.left)/r.width*vb.width;
+var best=D[0],bd=1e9;for(var i=0;i<D.length;i++){var d=Math.abs(D[i][0]-mx);if(d<bd){bd=d;best=D[i];}}
+var sx=r.left+best[0]/vb.width*r.width,sy=r.top+best[1]/vb.height*r.height;
+x.setAttribute('x1',best[0]);x.setAttribute('x2',best[0]);x.style.display='';
+dot.setAttribute('cx',best[0]);dot.setAttribute('cy',best[1]);dot.style.display='';
+tip.style.display='';tip.style.left=sx+'px';tip.style.top=sy+'px';
+tip.innerHTML='$'+best[3].toLocaleString(undefined,{minimumFractionDigits:2})+' &middot; '+best[2];});
+svg.addEventListener('mouseleave',function(){x.style.display='none';dot.style.display='none';tip.style.display='none';});}
+</script></body></html>

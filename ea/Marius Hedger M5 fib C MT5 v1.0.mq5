@@ -20,7 +20,7 @@
 #include <Trade/Trade.mqh>
 CTrade trade;
 
-#define BUILD "FIBC-MT5-2026-07-14-L"
+#define BUILD "FIBC-MT5-2026-08-24-P-STATEREL"
 
 //--- sizing
 input double LotSize            = 0.02;
@@ -119,6 +119,38 @@ input double RecoveryTrailGiveback = 20.0;  // give-back ($) from the recovery p
 input double RecoveryTargetPct    = 10.0;    // [opt2] >0: scale target to this %% of the DEEPEST loss rescued (max w/ RecoveryTargetUSD). +3%% on gold at 10.
 input bool   RecoveryRespectBreakFilters = false; // [curb] while rescuing, DON'T add a recovery leg when vol-regime HOT or price OVEREXTENDED (structural-break filters) -> stops piling into a stretched move about to whipsaw (the floor-hit cause). Needs UseVolRegimeFilter/UseOverextFilter on.
 input bool   RecoveryScaleByLots  = false; // [curb-size] scale the recovery $ levers (RecoveryTargetUSD/RecoveryTrailGiveback/HedgeTriggerLoss) by the compounding lotScale=floor(bal/CompoundingBase) so they TRACK lot size as the account grows (the basket-trail already does this). Fixes the floor-hits that appear only on grown accounts.
+//--- WHIPSAW RECALIBRATION (build N, 2026-08-07 — the Aug-5/6 V-reversal floor autopsy; XM floored -$451
+//    while the identical PEP episode rescued +$103 = capital bought time, but the defects are real).
+//    ALL default-OFF -> base byte-identical. Kill-test window Dec-01->Aug-07 CONTAINS both episodes:
+//    the ep1 rescue-win must STAY green; the ep2 whipsaw floor must flip to small/no loss.
+input double HedgeTriggerATRMult  = 0.0;   // >0: arm threshold = max(%%-bal trigger, this x ATR(D1,fast) x sideLots x contract $). Denominates the trigger in the THREAT's units (vol): the 3%%-bal trigger armed at ~0.3 daily-ATR post-melt-up = ordinary noise = systematic top-buying. Sweep {0.5,0.75,1.0}.
+input bool   UseRideBrake         = false; // skip a ride add while the ride side's NEWEST leg is underwater (the ride is no longer winning). Would have blocked the Aug-6 top-adds (legs 3-6 @4262-4270, all AFTER the 4297 peak).
+input int    MaxRideLegs          = 0;     // >0: hard cap on winning-side legs while rescuing (the ride overrides MaxSameTrades: XM stacked 6, PEP 11)
+input double RecoveryPeakBankPct  = 0.0;   // >0: arm the recovery trail once the book claws back this %% of the deepest->target distance (bank partial progress below +target: the Aug-6 book peaked -$35, $75 short of target, then floored -$451). e.g. 75.
+//--- STATE-RELEASE (build P, 2026-08-24 -- the adaptive rework's first lever; pilots fibc_inflight*/fibc_policy_sim*).
+//    IN-FLIGHT state study (5.25y PEP, perm p=0.000, halves stable): a ride pulled back >=0.3 x ATR(D1,14)
+//    off its post-arm extreme AND stale (no new extreme for hours) -- or under water vs its arm price while
+//    pulled back -- whipsaws 2-3x more often than it rescues. Specimen replay: releases the Aug-19 demo
+//    floor at -$233 instead of -$1,306 (trigger fired 6h before the floor); clean rescues untouched.
+//    ACTION: realize the WHOLE book at market at the first bad-state moment. DEFAULT OFF -> base unchanged.
+input bool   UseStateRelease      = false;
+input double SR_PullATR           = 0.30;  // pullback from post-arm extreme, x ATR(D1,14) (pilot q66)
+input double SR_StaleHours        = 7.0;   // hours without a new post-arm extreme (pilot q66)
+input double StateReleaseMinMark  = 0.0;   // <0: release ONLY while book float >= this $ (caps the realized loss; 0 = always)
+input bool   SR_UsePosLeg         = true;  // false: drop the (pos<=0 & pull) leg -- release only on pull+stale (the pos leg fires on transient wobbles)
+input double SR_MinAgeHours       = 0.0;   // >0: no release before the rescue is this old (protects fast ordinary rescues; disasters run 16h+)
+input double SR_ConfirmMins       = 0.0;   // >0: the bad state must persist this many minutes before releasing (kills one-tick triggers)
+//--- INTELLIGENT WEEKEND FLAT/FREEZE (2026-08-11 spec; user: "must not close a huge open position
+//    that puts the account back"). State-aware at the Friday cutoff: book green/shallow -> FLATTEN
+//    & bank (zero gap risk); book DEEP -> 1:1 NET HEDGE for the weekend (gap-IMMUNE: long+short
+//    cancel whatever Monday gaps) held frozen, released Monday -> the recovery continues untouched.
+//    Never realizes a deep recoverable float. DEFAULT OFF -> base byte-identical.
+input bool   UseWeekendFlat        = false;
+input int    WeekendNoNewHour      = 20;   // Friday server hour: stop NEW entries (never open a basket just to decide about it at the close)
+input int    WeekendFlatHour       = 22;   // Friday server hour: act on the book (flatten or freeze)
+input double WeekendFlatMaxLossPct = 1.0;  // book better than -this% of ScaleBal -> FLATTEN/bank; deeper -> freeze
+input bool   WeekendFreezeDeep     = true; // deep book -> weekend net-hedge (false = deep books just HOLD unhedged)
+input int    MondayReleaseHour     = 2;    // Monday server hour: close WKND hedge legs, resume normal ops
 //--- misc
 input string CommentText          = "FIB C";
 input int    MagicSeed            = 0;
@@ -133,9 +165,13 @@ int      g_recoverWinDir=-1;     // POSITION_TYPE_BUY / _SELL = the side we ride
 bool     g_recoverArmed=false;
 double   g_recoverPeak=0;
 double   g_recoverDeepest=0;
+double   g_srArmPrice=0, g_srExt=0;   // state-release (build P): post-arm extreme tracking
+datetime g_srExtTime=0;
+datetime g_srArmTime=0, g_srBadSince=0;   // state-release refinements: rescue age + persistence
 double   peakBasketFloat=0;
 int      hMA, hADX, hMA_D1, hATRfast, hATRslow;
 int      hATR_cur, hATR_avg;   // for the first-entry fingerprint (match GridStat: M5 ATR 20 / 100)
+int      hATR_D1_14;           // state-release ATR unit (matches the pilot: ATR(D1,14))
 int      gEqHandle=INVALID_HANDLE;
 
 //+------------------------------------------------------------------+
@@ -149,7 +185,8 @@ int OnInit()
    hATRslow= iATR(_Symbol, PERIOD_D1, VolATRSlowPeriod);
    hATR_cur= iATR(_Symbol, PERIOD_CURRENT, 20);   // fingerprint ATR (match GridStat)
    hATR_avg= iATR(_Symbol, PERIOD_CURRENT, 100);
-   if(hMA==INVALID_HANDLE||hADX==INVALID_HANDLE||hMA_D1==INVALID_HANDLE||hATRfast==INVALID_HANDLE||hATRslow==INVALID_HANDLE||hATR_cur==INVALID_HANDLE||hATR_avg==INVALID_HANDLE){ Print("handle fail"); return(INIT_FAILED); }
+   hATR_D1_14= iATR(_Symbol, PERIOD_D1, 14);   // state-release (build P)
+   if(hMA==INVALID_HANDLE||hADX==INVALID_HANDLE||hMA_D1==INVALID_HANDLE||hATRfast==INVALID_HANDLE||hATRslow==INVALID_HANDLE||hATR_cur==INVALID_HANDLE||hATR_avg==INVALID_HANDLE||hATR_D1_14==INVALID_HANDLE){ Print("handle fail"); return(INIT_FAILED); }
    MagicNumber = (MagicSeed!=0)?MagicSeed:GenMagic("MyEA",_Symbol,(int)Period());
    trade.SetExpertMagicNumber(MagicNumber);
    trade.SetDeviationInPoints(20);
@@ -157,6 +194,16 @@ int OnInit()
    Print("MARIUS HEDGER FIB C ",BUILD," | ",_Symbol," | Magic=",MagicNumber);
    Print("CONFIG | RecoverySizeMode=",RecoverySizeMode,(RecoverySizeMode==1?" (BREAK-EVEN RR="+DoubleToString(RecoveryRR,1)+"/buf"+DoubleToString(RecoveryCostBuffer,2)+")":" (Fibonacci)"));
    Print("CONFIG | FirstEntryGate=",UseFirstEntryGate,(UseFirstEntryGate?" (BUY>="+DoubleToString(FirstGateMinWinRate,2)+" SELL>="+DoubleToString(FirstGateSellMinWinRate>0?FirstGateSellMinWinRate:FirstGateMinWinRate,2)+" n>="+IntegerToString(FirstGateMinSamples)+" DB="+FirstGateStatsCSV+")":""));
+   Print("CONFIG | WHIPSAW-RECAL | HedgeTriggerATRMult=",DoubleToString(HedgeTriggerATRMult,2)," RideBrake=",UseRideBrake," MaxRideLegs=",MaxRideLegs," PeakBankPct=",DoubleToString(RecoveryPeakBankPct,0));
+   Print("CONFIG | STATE-RELEASE | UseStateRelease=",UseStateRelease,(UseStateRelease?" (pull>="+DoubleToString(SR_PullATR,2)+"xATR14 stale>="+DoubleToString(SR_StaleHours,1)+"h minMark="+DoubleToString(StateReleaseMinMark,0)+" posLeg="+(string)SR_UsePosLeg+" minAge="+DoubleToString(SR_MinAgeHours,0)+"h confirm="+DoubleToString(SR_ConfirmMins,0)+"m)":""));
+   Print("CONFIG | WEEKEND | UseWeekendFlat=",UseWeekendFlat,(UseWeekendFlat?" (noNew Fri "+IntegerToString(WeekendNoNewHour)+"h, act "+IntegerToString(WeekendFlatHour)+"h: flatten>-"+DoubleToString(WeekendFlatMaxLossPct,1)+"% else "+(WeekendFreezeDeep?"FREEZE":"hold")+", release Mon "+IntegerToString(MondayReleaseHour)+"h)":""));
+   // weekend restart-safety: a WKND hedge leg on the book = we are frozen (e.g. terminal restart Sat/Sun)
+   for(int wi=PositionsTotal()-1; wi>=0; wi--){
+      ulong wt=PositionGetTicket(wi);
+      if(wt==0||!PositionSelectByTicket(wt)) continue;
+      if(PositionGetInteger(POSITION_MAGIC)!=MagicNumber||PositionGetString(POSITION_SYMBOL)!=_Symbol) continue;
+      if(StringFind(PositionGetString(POSITION_COMMENT),"WKND")>=0){ g_wkndFrozen=true; Print("WEEKEND: frozen state re-adopted from open WKND hedge"); break; }
+   }
    Print("CONFIG | grisk=",grisk," Fib=",UseFibonacci,"/MaxFibMult=",MaxFibMult," Compound=",UseCompounding,
          " MaxSame=",MaxSameTrades," Trail=",UseBasketTrail,"/",DoubleToString(MinFloatToActivate,0),
          "/",DoubleToString(BasketTrailAmount,0)," QuickHarvest=",UseBuySellProfitThreshold);
@@ -323,6 +370,87 @@ void CloseSide(int dir)
 }
 void CloseAll(){ CloseSide(POSITION_TYPE_BUY); CloseSide(POSITION_TYPE_SELL); }
 
+//--- WEEKEND FLAT/FREEZE machinery -------------------------------------------------
+bool g_wkndFrozen = false;
+
+bool IsWkndLeg(ulong tk)
+{
+   if(!PositionSelectByTicket(tk)) return false;
+   return StringFind(PositionGetString(POSITION_COMMENT), "WKND") >= 0;
+}
+
+bool WkndBlockNew()   // Friday pre-close: no NEW entries; frozen book: nothing new either
+{
+   if(!UseWeekendFlat) return false;
+   if(g_wkndFrozen) return true;
+   MqlDateTime dt; TimeToStruct(TimeCurrent(), dt);
+   return (dt.day_of_week == 5 && dt.hour >= WeekendNoNewHour);
+}
+
+void WeekendCheck()
+{
+   if(!UseWeekendFlat) return;
+   MqlDateTime dt; TimeToStruct(TimeCurrent(), dt);
+   // FRIDAY cutoff: state-aware action on the open book
+   if(!g_wkndFrozen && dt.day_of_week == 5 && dt.hour >= WeekendFlatHour)
+   {
+      int n = CountOpen(POSITION_TYPE_BUY) + CountOpen(POSITION_TYPE_SELL);
+      if(n > 0)
+      {
+         double book = BookFloat();
+         if(book >= -WeekendFlatMaxLossPct/100.0 * ScaleBal())
+         {
+            Print("WEEKEND FLAT: banking/flattening book ", DoubleToString(book,2),
+                  " (better than -", DoubleToString(WeekendFlatMaxLossPct,1), "% -> cheap insurance)");
+            CloseAll(); peakBasketFloat = 0;
+         }
+         else if(WeekendFreezeDeep)
+         {
+            double net = SideLots(POSITION_TYPE_BUY) - SideLots(POSITION_TYPE_SELL);
+            double vol = NormalizeDouble(MathAbs(net), 2);
+            double minv = SymbolInfoDouble(_Symbol, SYMBOL_VOLUME_MIN);
+            if(vol >= minv)
+            {
+               bool ok = (net > 0) ? trade.Sell(vol, _Symbol, 0, 0, 0, CommentText + " WKND")
+                                   : trade.Buy(vol, _Symbol, 0, 0, 0, CommentText + " WKND");
+               Print("WEEKEND FREEZE: book ", DoubleToString(book,2), " too deep to realize -> net-hedged ",
+                     DoubleToString(vol,2), (net>0?" SELL":" BUY"), ok?" OK":" FAILED");
+               if(ok) g_wkndFrozen = true;
+            }
+            else { g_wkndFrozen = true; Print("WEEKEND FREEZE: net ~0, book already balanced"); }
+         }
+      }
+   }
+   // MONDAY release: close ONLY the WKND hedge legs, recovery/trail resume where they left off
+   if(g_wkndFrozen && dt.day_of_week == 1 && dt.hour >= MondayReleaseHour)
+   {
+      for(int i = PositionsTotal()-1; i >= 0; i--)
+      {
+         ulong tk = PositionGetTicket(i);
+         if(tk == 0 || !PositionSelectByTicket(tk)) continue;
+         if(PositionGetInteger(POSITION_MAGIC) != MagicNumber) continue;
+         if(PositionGetString(POSITION_SYMBOL) != _Symbol) continue;
+         if(StringFind(PositionGetString(POSITION_COMMENT), "WKND") >= 0) trade.PositionClose(tk);
+      }
+      g_wkndFrozen = false;
+      Print("WEEKEND RELEASE: hedge closed, normal operations resume");
+   }
+}
+
+//--- [build N] ride-brake: is the ride side's NEWEST leg underwater? (= the ride stopped winning;
+//    adding here is top-buying — the Aug-6 legs 3-6 anatomy)
+bool RideSideDrowning(int dir)
+{
+   datetime newest=0; double pnl=0; bool found=false;
+   for(int i=PositionsTotal()-1;i>=0;i--){ ulong t=PositionGetTicket(i); if(t==0||!PositionSelectByTicket(t))continue;
+      if(PositionGetInteger(POSITION_MAGIC)!=MagicNumber||PositionGetString(POSITION_SYMBOL)!=_Symbol)continue;
+      if((int)PositionGetInteger(POSITION_TYPE)!=dir)continue;
+      datetime pt=(datetime)PositionGetInteger(POSITION_TIME);
+      if(pt>=newest){ newest=pt; pnl=PositionGetDouble(POSITION_PROFIT)+PositionGetDouble(POSITION_SWAP); found=true; }
+   }
+   return(found && pnl<0);
+}
+
 //--- RECOVERY HEDGE: arm when deep underwater, ride the winning side, exit the whole book in profit.
 //    Sets g_recovering. The catastrophe floor (in CheckBasketTrail) stays the backstop.
 void CheckRecoveryHedge()
@@ -342,13 +470,48 @@ void CheckRecoveryHedge()
       double tgtUSD   = RecoveryScaleByLots ? RecoveryTargetUSD*lotScale    : RecoveryTargetUSD;
       double giveback = RecoveryScaleByLots ? RecoveryTrailGiveback*lotScale : RecoveryTrailGiveback;
       double effTarget = (RecoveryTargetPct>0) ? MathMax(tgtUSD,(RecoveryTargetPct/100.0)*(-g_recoverDeepest)) : tgtUSD;
+      // [build P] STATE-RELEASE: track the ride's post-arm extreme; at the first bad-state
+      // moment (pulled back off the extreme AND stale, or under water vs arm while pulled back)
+      // realize the WHOLE book at market. Skipped once the recovery trail is armed (trail exits better).
+      if(UseStateRelease)
+      {
+         int srSign=(g_recoverWinDir==POSITION_TYPE_BUY)?1:-1;
+         double srPx=SymbolInfoDouble(_Symbol,SYMBOL_BID);
+         if(g_srArmPrice<=0){ g_srArmPrice=srPx; g_srExt=srPx; g_srExtTime=TimeCurrent(); }  // restart-mid-rescue fallback
+         if((srPx-g_srExt)*srSign>0){ g_srExt=srPx; g_srExtTime=TimeCurrent(); }
+         double srAtr[1];
+         if(!g_recoverArmed && CopyBuffer(hATR_D1_14,0,1,1,srAtr)==1 && srAtr[0]>0)
+         {
+            double srPull =(g_srExt-srPx)*srSign/srAtr[0];
+            double srPos  =(srPx-g_srArmPrice)*srSign/srAtr[0];
+            double srStale=(double)(TimeCurrent()-g_srExtTime)/3600.0;
+            bool srBad=(srPull>=SR_PullATR && srStale>=SR_StaleHours) || (SR_UsePosLeg && srPos<=0.0 && srPull>=SR_PullATR);
+            if(SR_MinAgeHours>0 && (double)(TimeCurrent()-g_srArmTime)/3600.0 < SR_MinAgeHours) srBad=false;
+            if(srBad){ if(g_srBadSince==0) g_srBadSince=TimeCurrent(); } else g_srBadSince=0;
+            if(srBad && SR_ConfirmMins>0 && (double)(TimeCurrent()-g_srBadSince)/60.0 < SR_ConfirmMins) srBad=false;
+            if(srBad && (StateReleaseMinMark>=0.0 || bookFloat>=StateReleaseMinMark))
+            {
+               Print("STATE RELEASE: book=",DoubleToString(bookFloat,2)," pull=",DoubleToString(srPull,2),
+                     " stale=",DoubleToString(srStale,1),"h pos=",DoubleToString(srPos,2),
+                     " (arm ",DoubleToString(g_srArmPrice,2)," ext ",DoubleToString(g_srExt,2),")");
+               CloseAll(); g_recovering=false; g_recoverWinDir=-1; g_recoverArmed=false; g_recoverPeak=0; g_recoverDeepest=0; peakBasketFloat=0;
+               g_srArmPrice=0; g_srExt=0; g_srExtTime=0; g_srBadSince=0;
+               return;
+            }
+         }
+      }
       if(UseRecoveryTrail)
       {
-         if(bookFloat>=effTarget){ if(!g_recoverArmed) g_recoverArmed=true; if(bookFloat>g_recoverPeak) g_recoverPeak=bookFloat; }
+         // [build N] peak-banking: arm the trail once the book claws back RecoveryPeakBankPct% of the
+         // deepest->target distance (default 0 = arm only at +target, byte-identical to build M).
+         double armLvl=effTarget;
+         if(RecoveryPeakBankPct>0 && g_recoverDeepest<0)
+            armLvl=MathMin(effTarget, g_recoverDeepest + (RecoveryPeakBankPct/100.0)*(effTarget-g_recoverDeepest));
+         if(bookFloat>=armLvl){ if(!g_recoverArmed) g_recoverArmed=true; if(bookFloat>g_recoverPeak) g_recoverPeak=bookFloat; }
          if(g_recoverArmed){
-            double exitLvl=MathMax(effTarget, g_recoverPeak-giveback);
+            double exitLvl=MathMax(armLvl, g_recoverPeak-giveback);
             if(bookFloat<=exitLvl && bookFloat<g_recoverPeak){
-               Print("RECOVERY TRAIL exit: book=+",DoubleToString(bookFloat,2)," peak +",DoubleToString(g_recoverPeak,2)," tgt ",DoubleToString(effTarget,0));
+               Print("RECOVERY TRAIL exit: book=",DoubleToString(bookFloat,2)," peak ",DoubleToString(g_recoverPeak,2)," tgt ",DoubleToString(effTarget,0)," arm ",DoubleToString(armLvl,0));
                CloseAll(); g_recovering=false; g_recoverWinDir=-1; g_recoverArmed=false; g_recoverPeak=0; g_recoverDeepest=0; peakBasketFloat=0;
             }
          }
@@ -363,11 +526,24 @@ void CheckRecoveryHedge()
 
    // not recovering -> check the arm trigger
    double trigger = (HedgeTriggerPctBal>0) ? (HedgeTriggerPctBal/100.0)*bal : (RecoveryScaleByLots ? HedgeTriggerLoss*LotScaleInt() : HedgeTriggerLoss);
+   // [build N] ATR-denominated floor on the trigger: never arm inside ordinary noise. The $-trigger is
+   // static while gold's ATR moves; post-melt-up 3%-bal = ~0.3 daily-ATR -> armed on noise -> top-bought.
+   if(HedgeTriggerATRMult>0 && trigger>0){
+      double atrb[1];
+      if(CopyBuffer(hATRfast,0,1,1,atrb)==1 && atrb[0]>0){
+         double sideLots=MathMax(SideLots(POSITION_TYPE_BUY),SideLots(POSITION_TYPE_SELL));
+         double contract=SymbolInfoDouble(_Symbol,SYMBOL_TRADE_CONTRACT_SIZE);
+         double atrUSD=HedgeTriggerATRMult*atrb[0]*contract*sideLots;
+         if(atrUSD>trigger) trigger=atrUSD;
+      }
+   }
    if(trigger>0 && bookFloat<=-trigger)
    {
       double bp=SideProfit(POSITION_TYPE_BUY), sp=SideProfit(POSITION_TYPE_SELL);
       g_recoverWinDir = (bp>=sp) ? POSITION_TYPE_BUY : POSITION_TYPE_SELL;  // ride the LESS-negative (trend) side
       g_recovering=true; g_recoverArmed=false; g_recoverPeak=0; g_recoverDeepest=bookFloat;
+      g_srArmPrice=SymbolInfoDouble(_Symbol,SYMBOL_BID); g_srExt=g_srArmPrice; g_srExtTime=TimeCurrent();   // state-release (build P)
+      g_srArmTime=TimeCurrent(); g_srBadSince=0;
       Print("RECOVERY ARMED: book=",DoubleToString(bookFloat,2)," trigger=-",DoubleToString(trigger,2)," winDir=",(g_recoverWinDir==POSITION_TYPE_BUY?"BUY":"SELL"));
    }
 }
@@ -460,6 +636,9 @@ void OnTick()
 {
    if(iTime(_Symbol,PERIOD_CURRENT,0)!=lastBarTime){ lastBarTime=iTime(_Symbol,PERIOD_CURRENT,0); tradesThisBar=0; LogEquity(); }
 
+   WeekendCheck();                // Friday flatten/freeze + Monday release (state-aware, spec 08-11)
+   if(g_wkndFrozen) return;       // frozen book crosses the weekend untouched: no trail/harvest/rescue/entries
+
    CheckRecoveryHedge();          // arm/exit the deep-basket rescue -> sets g_recovering
    CheckBasketTrail(g_recovering);// catastrophe floor always; basket-trail skipped while rescuing
 
@@ -469,6 +648,7 @@ void OnTick()
       if(!inS) return;
    }
    if(tradesThisBar>=tradesperbar) return;
+   if(WkndBlockNew()) return;     // Friday pre-close: manage what's open, start nothing new
 
    int sig=GoldminerSignal();
    if(sig==0) return;
@@ -478,6 +658,10 @@ void OnTick()
       int winSig=(g_recoverWinDir==POSITION_TYPE_BUY)?1:-1;
       bool blockAdd = RecoveryRespectBreakFilters &&
                       ( (UseVolRegimeFilter && IsVolRegimeHot()) || (UseOverextFilter && IsOverextended()) );
+      // [build N] ride-brake: no adds while the ride's newest leg is red (the ride stopped winning);
+      // + optional hard cap on ride legs (the ride path ignores MaxSameTrades by design).
+      if(UseRideBrake && RideSideDrowning(g_recoverWinDir)) blockAdd=true;
+      if(MaxRideLegs>0 && CountOpen(g_recoverWinDir)>=MaxRideLegs) blockAdd=true;
       if(sig==winSig && !blockAdd) OpenTrade(sig,true);   // ride the winner unless a structural break says wait
       return;
    }

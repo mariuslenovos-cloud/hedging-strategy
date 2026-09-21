@@ -137,6 +137,34 @@ CELLS.update({
     # (ScalpStat M1/M5, FXFade, EURGBP fade-grid, RevScalp, the outsized-bar fade); the one scalp that clears cost on this feed is the
     # grid's own harvest. These cells = GOLD HPIN12 verbatim with a FASTER harvest only (PT 25 / 35 vs 50). Judge vs GOLD HPIN12:
     # the turnover law says more harvests can pay, the RR law says a $25 target against an ~$80 first-leg stop needs >76% wins.
+    # FULL GEOMETRY of the live build at the LIVE balance (2026-09-21, user: "you can make better money with the
+    # capital we have"). The 08-26 "full size at $3k = 740tr/91% DD" ruin was the RIDE build: the 12% STAGED CUT
+    # fired, the engine walked back in, 119 times. HPIN12 replaced that cut with a 1:1 PIN -- the loop mechanism
+    # is gone. Full-size HPIN12 at ~$2,600 has NEVER been run. Scale-covariant transform (08-14 doctrine): every
+    # $-lever doubles with the lot -- 0.02 / PT 100 / RBT 40 = the standard GOLD_FIBC8 geometry + the HPIN12 organs.
+    # If it survives at this balance, gold ~doubles ($33 -> ~$66/day family = the user's bar) from existing capital.
+    # Judge vs GOLD HPIN12 at deposit 2592: net must roughly double with pin count and eqDD% not materially worse;
+    # a pin cluster / eqDD > ~20% = the balance-gating law wins again and HALF stays.
+    "GOLD HPIN12 FULL": dict(GOLD_FIBC8, LotSize="0.02", ProfitTargetUSD="100.0", RescueBookTargetUSD="40.0",
+                        RescueOnDrawdownPct="12.0", RescueTickArm="true", RescueBookSingle="true", RescueLockDir="true",
+                        RescueTargetPctDeepest="10.0", RescueRearmCooldownBars="288",
+                        RescueImmediateLeg="true", RescueImmediateRatio="1.0",
+                        RescueRampByLegs="true", RescueSuspendsStaged="true"),
+    # THE PT25 GEOMETRY MADE CASHABLE (2026-09-21): HPIN12 PT25 at 0.01 = RF 7.38 / eqDD 8.06% / worst -$92, the best
+    # gold curve on record, shelved 09-05 because "it cannot be sized back up at the 0.01 min lot". At 0.02 lots a $50
+    # harvest IS the PT25 geometry (25 points). This cell targets RF, not size: 0.02 / PT 50 / RBT 40.
+    "GOLD HPIN12 FULL PT50": dict(GOLD_FIBC8, LotSize="0.02", ProfitTargetUSD="50.0", RescueBookTargetUSD="40.0",
+                        RescueOnDrawdownPct="12.0", RescueTickArm="true", RescueBookSingle="true", RescueLockDir="true",
+                        RescueTargetPctDeepest="10.0", RescueRearmCooldownBars="288",
+                        RescueImmediateLeg="true", RescueImmediateRatio="1.0",
+                        RescueRampByLegs="true", RescueSuspendsStaged="true"),
+    # FREQUENCY probe (2026-09-21, user: "gold trades once a week"): grisk 3 = more Goldminer fires (highest shadow-R in the
+    # 06-07 sweep, never trade-tested; 4 was chosen as the plateau member). Same gate, same exits as FULL PT50.
+    "GOLD HPIN12 FULL PT50 G3": dict(GOLD_FIBC8, grisk="3", LotSize="0.02", ProfitTargetUSD="50.0", RescueBookTargetUSD="40.0",
+                        RescueOnDrawdownPct="12.0", RescueTickArm="true", RescueBookSingle="true", RescueLockDir="true",
+                        RescueTargetPctDeepest="10.0", RescueRearmCooldownBars="288",
+                        RescueImmediateLeg="true", RescueImmediateRatio="1.0",
+                        RescueRampByLegs="true", RescueSuspendsStaged="true"),
     "GOLD HPIN12 PT25": dict(GOLD_FIBC8, LotSize="0.01", ProfitTargetUSD="25.0", RescueBookTargetUSD="20.0",
                         RescueOnDrawdownPct="12.0", RescueTickArm="true", RescueBookSingle="true", RescueLockDir="true",
                         RescueTargetPctDeepest="10.0", RescueRearmCooldownBars="288",
