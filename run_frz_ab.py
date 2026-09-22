@@ -71,7 +71,14 @@ def freeze_lines(cell, t0):
             txt = io.open(lg, encoding="utf-16", errors="replace").read()
         except Exception:
             continue
-        out += [l.split("\t")[-1].strip() for l in txt.splitlines() if FRZ_RE.search(l)]
+        # bound by the LAUNCH time-of-day on each line: log files are per DAY, so a later cell would
+        # otherwise inherit every earlier cell's lines (the 2026-09-22 REBALANCE=9-on-KP2 miscount)
+        t0s = datetime.fromtimestamp(t0).strftime("%H:%M:%S")
+        for l in txt.splitlines():
+            if not FRZ_RE.search(l): continue
+            parts = l.split("	")
+            if len(parts) > 2 and parts[2][:8] < t0s: continue
+            out.append(parts[-1].strip())
     return out
 
 
