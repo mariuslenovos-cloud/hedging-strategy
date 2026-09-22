@@ -74,6 +74,10 @@ CELLS = {
     # PARK MODE (2026-09-21): the frozen pair is walled off from the engine (it is neutral -- zero
     # directional risk, ~zero carry); the engine keeps trading a FRESH book around it; the pair
     # still releases on its own bounce rule. = FreezeAllowEntries done with proper separation.
+    # 2026-09-22 KEEP-1:1 -- the freeze left broker TPs on the covered legs; on the demo two frozen sell legs
+    # TP'd, the hedge became a naked long and the -10% PORTFOLIO STOP realized -226 (Bug Log 2026-09-22).
+    "OIL FRZRT15KP1": (True,  False,  0.0,   0, 1.5, False, 1),   # FRZRT15 + REBALANCE: trim/top-up _FRZ as covered legs close
+    "OIL FRZRT15KP2": (True,  False,  0.0,   0, 1.5, False, 2),   # FRZRT15 + STRIP TPs off every non-_FRZ leg at arm
     "OIL FRZPARK":     (True,  False,  0.0,   0, 0.0, True),
     "OIL FRZPARKRT15": (True,  False,  0.0,   0, 1.5, True),
     "OIL FRZPARKT40":  (True,  False, 40.0,   0, 0.0, True),
@@ -111,6 +115,48 @@ double FrzFloat()
       s += PositionGetDouble(POSITION_PROFIT) + PositionGetDouble(POSITION_SWAP);
    }
    return s;
+}
+// [KEEP-INJECT] ---- keep the freeze 1:1 when a covered leg closes (broker TP / hand) ------------
+void FreezeTrimHedge(double excess)   // close `excess` lots of _FRZ legs, largest position first
+{
+   double minLot = SymbolInfoDouble(_Symbol, SYMBOL_VOLUME_MIN);
+   double step   = SymbolInfoDouble(_Symbol, SYMBOL_VOLUME_STEP); if(step <= 0.0) step = minLot;
+   double left = excess;
+   for(int i=PositionsTotal()-1; i>=0 && left >= minLot - 1e-9; i--)
+   {
+      ulong tk = PositionGetTicket(i);
+      if(tk==0 || !PositionSelectByTicket(tk)) continue;
+      if(PositionGetInteger(POSITION_MAGIC) != MagicNumber) continue;
+      if(PositionGetString(POSITION_SYMBOL) != _Symbol) continue;
+      if(StringFind(PositionGetString(POSITION_COMMENT), "_FRZ") < 0) continue;
+      double vol = PositionGetDouble(POSITION_VOLUME);
+      double cut = MathFloor(MathMin(vol, left)/step + 1e-9) * step;
+      if(cut < minLot) continue;
+      bool whole = (vol - cut < minLot);
+      bool ok = whole ? trade.PositionClose(tk) : trade.PositionClosePartial(tk, cut);
+      if(ok)
+      {
+         left -= whole ? vol : cut;
+         Print("FREEZE REBALANCE: covered leg closed -> hedge trimmed by ", DoubleToString(whole?vol:cut,2),
+               " lots (book ", DoubleToString(PortfolioFloat(),2), "), hedge back to 1:1");
+      }
+   }
+}
+int FreezeStripTPs()   // zero the broker TP on every non-_FRZ leg so a fill can never unbalance the freeze
+{
+   int n = 0;
+   for(int i=PositionsTotal()-1; i>=0; i--)
+   {
+      ulong tk = PositionGetTicket(i);
+      if(tk==0 || !PositionSelectByTicket(tk)) continue;
+      if(PositionGetInteger(POSITION_MAGIC) != MagicNumber) continue;
+      if(PositionGetString(POSITION_SYMBOL) != _Symbol) continue;
+      if(StringFind(PositionGetString(POSITION_COMMENT), "_FRZ") >= 0) continue;
+      if(PositionGetDouble(POSITION_TP) == 0.0) continue;
+      if(trade.PositionModify(tk, PositionGetDouble(POSITION_SL), 0.0)) n++;
+   }
+   Print("FREEZE TP STRIPPED: ", n, " covered legs (they bank via the basket target after release)");
+   return n;
 }
 double LoseSideBE(int loseDir)   // volume-weighted entry of the FROZEN side, _FRZ legs excluded
 {
@@ -202,7 +248,7 @@ RELEASE = '''
 '''
 
 
-def build(tag, disarm, cap_be, trail, cooldown, retrace, park, src):
+def build(tag, disarm, cap_be, trail, cooldown, retrace, park, src, keep=0):
     stamp = f'OIL-FRZ-CELL-{tag.replace(" ", "-")}-2026-09-18'
     assert src.count(BUILD_DEF) == 1, "build define anchor"
     import re as _re
@@ -223,7 +269,7 @@ const bool   FreezeDisarmOnFlat     = {str(disarm).lower()};   // [FRZ-INJECT] c
 const bool   FreezeReleaseCapAtBE   = {str(cap_be).lower()};   // [FRZ-INJECT] cap the release level at the losing side's break-even
 const double FreezeHarvestTrailPct  = {trail};   // [FRZ-INJECT] release on this %% giveback from the hedge's PEAK profit (0 = off)
 const double FreezeHarvestMinPctBal = 1.0;    // [FRZ-INJECT] the trail arms only once the hedge peak >= this %% of balance
-const int    FreezeCooldownBars     = {cooldown};    // [FRZ-INJECT] block NEW entries for N bars after a freeze episode flattens (0 = off)\nconst double FreezePostFloorRetraceATR = {retrace};  // [FRZ-INJECT] after a flatten, no NEW entries until price retraces this x ATR(D1) off the episode extreme (0 = off)\nconst bool   FreezeParkMode         = {str(park).lower()};   // [PARK-INJECT] wall the frozen pair off and keep trading a fresh book around it''')
+const int    FreezeCooldownBars     = {cooldown};    // [FRZ-INJECT] block NEW entries for N bars after a freeze episode flattens (0 = off)\nconst double FreezePostFloorRetraceATR = {retrace};  // [FRZ-INJECT] after a flatten, no NEW entries until price retraces this x ATR(D1) off the episode extreme (0 = off)\nconst bool   FreezeParkMode         = {str(park).lower()};   // [PARK-INJECT] wall the frozen pair off and keep trading a fresh book around it\nconst int    FreezeKeepMode         = {keep};   // [KEEP-INJECT] 0 off | 1 rebalance _FRZ as covered legs close | 2 strip broker TPs at arm''')
 
     # global peak tracker
     g = "int      g_freezeDir = -1;"
@@ -238,6 +284,9 @@ const int    FreezeCooldownBars     = {cooldown};    // [FRZ-INJECT] block NEW e
     ce = "void CloseEverything(string reason)"
     assert out.count(ce) == 1, "CloseEverything anchor"
     out = out.replace(ce, HELPERS + PARK_HELPERS + "\n" + ce)
+    ceb = "void CloseEverything(string reason)\n{\n"
+    assert out.count(ceb) == 1, "CloseEverything body anchor"
+    out = out.replace(ceb, ceb + '   Print("CLOSE ALL: ", reason, " (book ", DoubleToString(PortfolioFloat(),2), ")");\n')
 
     # post-floor entry cooldown, right before the frozen-entries guard
     eg = ("   if(UseFreezeHedge && g_freezeDir >= 0) return;   "
@@ -273,7 +322,25 @@ const int    FreezeCooldownBars     = {cooldown};    // [FRZ-INJECT] block NEW e
     # peak reset at arm
     setdir = "               g_freezeDir = loseDir; g_freezeExtreme = px;"
     assert out.count(setdir) == 1, "arm set anchor"
-    out = out.replace(setdir, setdir + " g_frzPeak = 0.0;\n               if(FreezeParkMode) ParkLegs(loseDir);")
+    out = out.replace(setdir, setdir + " g_frzPeak = 0.0;\n               if(FreezeParkMode) ParkLegs(loseDir);\n               if(FreezeKeepMode == 2) FreezeStripTPs();")
+
+    # [KEEP-INJECT] mode 1: every frozen tick, restore 1:1 if a covered leg closed (TP / hand) or a hedge-side leg did
+    hold = "      else if(g_freezeDir >= 0)\n      {\n         double atrD1f = ReadBuf(hATR_D1,0,1);"
+    assert out.count(hold) == 1, "hold branch anchor"
+    KEEPHOOK = ("\n         if(FreezeKeepMode == 1 && !FreezeParkMode)   // [KEEP-INJECT] keep the freeze 1:1\n"
+                "         {\n"
+                "            int kHdir = (g_freezeDir == (int)ORDER_TYPE_BUY) ? (int)ORDER_TYPE_SELL : (int)ORDER_TYPE_BUY;\n"
+                "            double kMin = SymbolInfoDouble(_Symbol, SYMBOL_VOLUME_MIN);\n"
+                "            double kExcess = NormalizeDouble(SameDirLots(kHdir) - SameDirLots(g_freezeDir), 2);\n"
+                "            if(kExcess >= kMin) FreezeTrimHedge(kExcess);\n"
+                "            else if(kExcess <= -kMin)\n"
+                "            {\n"
+                "               string kc = CommentText + \"_FRZ\";\n"
+                "               bool kok = (kHdir==ORDER_TYPE_BUY) ? trade.Buy(-kExcess,_Symbol,Ask_(),0,0,kc) : trade.Sell(-kExcess,_Symbol,Bid_(),0,0,kc);\n"
+                "               if(kok) Print(\"FREEZE REBALANCE: hedge-side leg closed -> hedge topped up by \", DoubleToString(-kExcess,2), \" lots, back to 1:1\");\n"
+                "            }\n"
+                "         }")
+    out = out.replace(hold, hold + KEEPHOOK)
 
     # the alternative release triggers, right after the ATR bounce computation
     shorts = ("         { if(px > g_freezeExtreme) g_freezeExtreme = px; "
@@ -306,17 +373,19 @@ const int    FreezeCooldownBars     = {cooldown};    // [FRZ-INJECT] block NEW e
     assert oninit in out, "OnInit anchor"
     out = out.replace(oninit, oninit +
                       f'   Print("OIL FREEZE CELL {tag} -- SOLID4 LOCKED + disarm={str(disarm).lower()}'
-                      f' capBE={str(cap_be).lower()} trail={trail}%");\n', 1)
+                      f' capBE={str(cap_be).lower()} trail={trail}% keep={keep}");\n', 1)
     return f"//| GENERATED FRZ CELL {tag} from SOLID4 LOCKED -- regen via make_oil_frz_cells.py |\n" + out
 
 
 def main():
     only = set(sys.argv[1:])
     src = io.open(SRC, encoding="utf-8", errors="replace").read()
-    for tag, (disarm, cap_be, trail, cooldown, retrace, park) in CELLS.items():
+    for tag, vals in CELLS.items():
         if only and tag not in only:
             continue
-        code = build(tag, disarm, cap_be, trail, cooldown, retrace, park, src)
+        disarm, cap_be, trail, cooldown, retrace, park = vals[:6]
+        keep = vals[6] if len(vals) > 6 else 0
+        code = build(tag, disarm, cap_be, trail, cooldown, retrace, park, src, keep)
         for expdir, metaed, extra in TARGETS:
             path = os.path.join(expdir, f"{tag}.mq5")
             io.open(path, "w", encoding="utf-8").write(code)
