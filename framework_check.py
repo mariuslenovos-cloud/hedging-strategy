@@ -117,6 +117,15 @@ def watched_magics():
         out["gridstat_dashboard"] = {"LIVE": set(gd.MAGICS)}
     except Exception as e:
         out["gridstat_dashboard"] = {"_error": str(e)}
+    # 2026-09-22: the fingerprint MINER feeds the register (the size-up / drop decisions). It was
+    # NOT in this list, so the 09-01 oil repoint (66705 -> 77180) missed it and for three weeks the
+    # register showed the retired RSQ2 build's July record as live-oil evidence. Same class, same fix.
+    try:
+        mi = importlib.import_module("gridstat_fingerprint_mi")
+        out["gridstat_fingerprint_mi"] = {a: {c["magic"] for c in cfg["streams"].values()}
+                                          for a, cfg in mi.ACCOUNTS.items()}
+    except Exception as e:
+        out["gridstat_fingerprint_mi"] = {"_error": str(e)}
     return out
 
 
@@ -174,8 +183,12 @@ def check_coverage_and_attribution():
             if acct not in per_acct:
                 continue                       # tool legitimately does not claim this account
             seen = per_acct[acct]
-            orphans = sorted(traded - seen)
-            covered = sum(v[1] for (m, _s), v in agg.items() if m in seen)
+            # 2026-09-22: a tool may declare magics OUTSIDE ITS SCOPE by design (the fingerprint miner mines
+            # GridStat setup fingerprints; MM ladders, SessionDrift, LongVol, fib C carry none). Declared
+            # explicitly in the tool (NON_FINGERPRINT_MAGICS), imported here -- never assumed.
+            scope_out = set(getattr(importlib.import_module(tool), "OUT_OF_SCOPE_MAGICS", set())) if tool != "episode_auditor" else set()
+            orphans = sorted(traded - seen - scope_out)
+            covered = sum(v[1] for (m, _s), v in agg.items() if m in seen or m in scope_out)
             check(f"{acct}: {tool} watches every magic that traded",
                   not orphans,
                   (f"UNWATCHED magic(s) {orphans} -> "

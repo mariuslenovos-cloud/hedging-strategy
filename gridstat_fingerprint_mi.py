@@ -22,12 +22,20 @@ COMMON = r"C:\Users\mariu\AppData\Roaming\MetaQuotes\Terminal\Common\Files"
 # 2026-08-08 (Layer 2): mine BOTH accounts — the LIVE record (halted since 08-05; resumes
 # at re-enable) AND the DEMO TWIN (the gap-meter, where the forward evidence accrues now).
 # Same shared signal logs serve both (Common\Files is terminal-shared; nearest-time match).
+# Magics this miner deliberately does NOT mine: they carry no GridStat setup fingerprint.
+# framework_check (2) imports this so the omission is a declared scope, not a silent hole.
+OUT_OF_SCOPE_MAGICS = {
+    4901, 4902,                       # fib C XC / SR6F (Goldminer+hedge, own gate, no fingerprint log)
+    88231, 88241,                     # SessionDrift / LongVol (clock / bracket engines)
+    956272, 938413, 905928, 903865, 903878, 963769, 907634, 985578, 954801, 978941, 985139,   # MM shadow logger instances (985139 = m5 chart)
+    59956, 77181,                     # DAYRANK challengers share the incumbents' signal log rows (attributed to 59955/77180)
+}
 ACCOUNTS = {
     "LIVE": dict(path=r"C:\Program Files\Pepperstone MetaTrader 5\terminal64.exe",
                  login=51511633,
                  streams={
         "XAUUSD":    dict(label="GOLD", magic=59955, log="gridstat_signals_XAUUSD.csv",    bt="gridstat_setups_gold.csv"),
-        "SpotCrude": dict(label="OIL",  magic=66705, log="gridstat_signals_SpotCrude.csv", bt="gridstat_setups_oil_research.csv"),
+        "SpotCrude": dict(label="OIL-SOLID", magic=77180, log="gridstat_signals_SpotCrude.csv", bt="gridstat_setups_oil_research.csv"),   # 2026-09-22: was 66705 (retired RSQ2) -- the 09-01 repoint missed the miner; every live-oil line shown since was the dead engine's July record
     }),
     "DEMO": dict(path=r"C:\MT5 Pepperstone Instance 2\terminal64.exe",
                  login=61586543,   # new demo twin 2026-08-31
@@ -98,10 +106,15 @@ def _basket_id(comment):
     while j < len(c) and c[j].isdigit(): num += c[j]; j += 1
     return num
 
-def mine(sym, cfg, deals):
+def mine(sym, cfg, deals, livepos=None):
     sym = cfg.get("symbol", sym)   # [08-19] stream key may be an alias (same-symbol challengers); real symbol wins
     # per position: open time/dir/basket-id + realized net + close time
     pos = {}
+    # [2026-09-22] TWO passes. The old loop filtered EVERY deal on the EA's magic -- but a hand-close,
+    # a Book Guard flatten or a broker force-flat closes with magic 0, so those OUT deals were dropped,
+    # the position never got a "close", and the WHOLE BASKET silently vanished from the record (live
+    # oil read 3 baskets / 100% where the ledger has 3-3 incl. six hand-closes). Ownership belongs to
+    # the OPENING deal; closes are matched by position_id whatever their magic.
     for d in deals:
         if d.symbol != sym or d.magic != cfg["magic"]:
             continue
@@ -110,11 +123,19 @@ def mine(sym, cfg, deals):
             p["open"] = datetime.utcfromtimestamp(d.time)
             p["dir"]  = "BUY" if d.type == 0 else "SELL"
             p["bid"]  = _basket_id(d.comment)
-        elif d.entry == mt5.DEAL_ENTRY_OUT and d.type in (0, 1):
-            p = pos.setdefault(d.position_id, {})
+    for d in deals:
+        if d.symbol != sym or d.position_id not in pos:
+            continue
+        if d.entry in (mt5.DEAL_ENTRY_OUT, mt5.DEAL_ENTRY_OUT_BY) and d.type in (0, 1):
+            p = pos[d.position_id]
             p["net"]   = p.get("net", 0.0) + d.profit + d.swap + d.commission
             p["close"] = datetime.utcfromtimestamp(d.time)
+            if d.magic != cfg["magic"]: p["hand"] = True     # closed by something other than the EA
     closed = [p for p in pos.values() if "close" in p and "open" in p]
+    openpos = [p for p in pos.values() if "close" not in p and "open" in p]
+    if livepos:
+        for pid, p in pos.items():
+            if "close" not in p and pid in livepos: p["float"] = livepos[pid]
 
     # GROUP legs into BASKETS: a basket's legs (initiating entry + grid recovery adds)
     # all close together (one CloseBasket call). Cluster closed legs by close-time
@@ -147,7 +168,7 @@ def mine(sym, cfg, deals):
         if hits > best_hits:
             best_hits, best_off = hits, off
 
-    per = defaultdict(lambda: [0, 0, 0.0])   # baskets, wins, whole-basket net
+    per = defaultdict(lambda: [0, 0, 0.0, 0])   # baskets, wins, whole-basket net, hand-closed baskets
     unmatched = 0
     for legs in baskets:
         init = min(legs, key=lambda x: x["open"])
@@ -159,7 +180,13 @@ def mine(sym, cfg, deals):
         per[fp][0] += 1
         per[fp][1] += 1 if net > 0 else 0
         per[fp][2] += net
-    return per, unmatched, best_off
+        per[fp][3] += 1 if any(x.get("hand") for x in legs) else 0
+    # OPEN episodes (in flight -- e.g. a frozen pair): reported separately, never folded into win%
+    opens = defaultdict(lambda: [0, 0.0])
+    for p in openpos:
+        fp = nearest_fp(p["open"], p["dir"], best_off) or "?"
+        opens[fp][0] += 1; opens[fp][1] += p.get("float", 0.0)
+    return per, unmatched, best_off, opens
 
 def main():
     print(f"FINGERPRINT MINING (live + demo twin) | {datetime.now():%Y-%m-%d %H:%M}\n")
@@ -167,9 +194,10 @@ def main():
         if not connect(acfg["path"], acfg["login"]):
             print(f"[{acct}] not connected — skipped\n"); continue
         deals = mt5.history_deals_get(datetime(2026, 7, 13), datetime.now() + timedelta(days=1)) or []
+        livepos = {p.identifier: p.profit + p.swap for p in (mt5.positions_get() or [])}
         mt5.shutdown()
         for sym, cfg in acfg["streams"].items():
-            per, unmatched, off = mine(sym, cfg, deals)
+            per, unmatched, off, opens = mine(sym, cfg, deals, livepos)
             bt = bt_winrates(cfg["bt"])
             tot_n = sum(v[0] for v in per.values())
             print(f"===== [{acct}] {cfg['label']} ({sym}) | {tot_n} closed baskets fingerprinted"
@@ -177,9 +205,9 @@ def main():
                   f"{f' | {unmatched} unmatched' if unmatched else ''}")
             if not per:
                 print("   (no closed trades yet)\n"); continue
-            print(f"   {'fingerprint':30}{'N':>6}{'Win%':>7}{'Net$':>10}{'btN':>5}{'btWin%':>7}  read")
+            print(f"   {'fingerprint':30}{'N':>6}{'Win%':>7}{'Net$':>10}{'hand':>5}{'btN':>5}{'btWin%':>7}  read")
             for fp in sorted(per, key=lambda k: -per[k][2]):
-                n, w, net = per[fp]
+                n, w, net, hand = per[fp]
                 bn, bwr = bt.get(fp, (0, None))
                 btw = f"{100*bwr:.0f}%" if bwr is not None else " -"
                 if n < 5:
@@ -190,7 +218,9 @@ def main():
                     read = "loser -> review"
                 else:
                     read = "neutral"
-                print(f"   {fp:30}{n:>6}{100*w/n:>6.0f}%{net:>10.2f}{bn:>5}{btw:>7}  {read}")
+                print(f"   {fp:30}{n:>6}{100*w/n:>6.0f}%{net:>10.2f}{hand:>5}{bn:>5}{btw:>7}  {read}")
+            for fp, (on, fl) in opens.items():
+                print(f"   {fp:30}{'OPEN':>6}{'':>7}{fl:>10.2f}{'':>5}{'':>5}{'':>7}  in flight ({on} leg{'s' if on!=1 else ''}) -- not in the stats above")
             print()
     print("NOTE: act on WINNER/loser only at n>=~15-20 per fingerprint, and promotion requires")
     print("the FOUR-LAYER countersign (regime + episode margins + re-test + register bar).")
