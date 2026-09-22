@@ -23,9 +23,9 @@ LIVE_LOGIN = 51511633
 # stream identity: magic -> (label, symbol, categorical hue slot, anchor text)
 STREAMS = {
     909090: dict(label="GUARD", sym="*",         hue="grey",   anchor_pf=0.0,  anchor="Book Guard v2 hedge legs (account-level, any symbol)"),
-    59955: dict(label="GOLD",  sym="XAUUSD",    hue="gold",   anchor_pf=3.39, anchor="SF12C2 · PF 3.39"),
+    59955: dict(label="GOLD",  sym="XAUUSD",    hue="gold",   anchor_pf=3.87, anchor="HPIN12 · PF 3.87"),  # 2026-09-22: was SF12C2/3.39 -- the live build has been HPIN12 since 09-04 15:08 (GUI anchor $5,952 / PF 3.87)
     77180: dict(label="OIL",   sym="SpotCrude", hue="oil",    anchor_pf=1.47, anchor="SOLID4 · PF 1.47"),  # 2026-09-01: was 66705 (retired RSQ2) -> live oil P&L was invisible here
-    4901:  dict(label="fib C", sym="XAUUSD",    hue="fibc",   anchor_pf=1.72, anchor="LOCKED · PF 1.72"),
+    4901:  dict(label="fib C", sym="XAUUSD",    hue="fibc",   anchor_pf=1.72, anchor="LOCKED · PF 1.72 · OFF live since 08-22"),
     59801: dict(label="SILVER",sym="XAGUSD",    hue="silver", anchor_pf=2.00, anchor="PAUSED"),
 }
 START = datetime(2026, 8, 10)       # THE REBUILD ERA: go-live Monday (old era archived in CLAUDE.md — the
@@ -251,7 +251,10 @@ def layers_panel(sent, demo, fac, ages, now):
         age_ok = rows3 and (now - datetime.strptime(rows3[-1]["date"], "%Y-%m-%d")).days <= 8
         lrows = []
         latest = {}
-        for r in rows3: latest[r["job"]] = r
+        # [2026-09-22] only jobs that ran on the LAST run date: retired XM-era jobs (GOLD-FIBC8 -1,212, fibC-XC ...)
+        # kept their August rows on the panel as if current -- a stale verdict shown as live.
+        for r in rows3:
+            if r["date"] == last_date: latest[r["job"]] = r
         for j, r in latest.items():
             lrows.append((j, f"net {float(r['net']):+,.0f} RF {r['rf']} · {r['verdict']}"))
         lrows.append(("last run", last_date))
@@ -316,12 +319,12 @@ def render(g, board, fac, refresh):
     cur_dd = max(0.0, run_peak - ai.equity)
     dd_pct = maxdd/run_peak*100 if run_peak else 0
     tiles = "".join([
-        tile("Balance", f"${f(ai.balance)}", f"since $3,000 deposit"),
+        tile("Balance", f"${f(ai.balance)}", f"era start 08-10 at ${f(INIT_DEPOSIT)}"),   # 2026-09-22: label said "$3,000 deposit" while P&L is vs the era start
         tile("Total P&L", f'{"+" if total_net>=0 else ""}${f(total_net)}', f"{total_net/INIT_DEPOSIT*100:+.1f}%", net_cls),
         tile("Equity", f"${f(ai.equity)}", f'floating {"+" if floating>=0 else ""}${f(floating)}', flt_cls),
         tile("Book DD", f"${f(maxdd)}", f"{dd_pct:.1f}% max · now ${f(cur_dd,0)}", "dn" if cur_dd > 1 else ""),
         tile("Today", f'{"+" if g["today"]>=0 else ""}${f(g["today"])}', "realized", "up" if g["today"]>=0 else "dn"),
-        tile("This week", f'{"+" if g["week"]>=0 else ""}${f(g["week"])}', "realized", "up" if g["week"]>=0 else "dn"),
+        tile("Last 7 days", f'{"+" if g["week"]>=0 else ""}${f(g["week"])}', "realized, rolling", "up" if g["week"]>=0 else "dn"),   # 2026-09-22: was "This week" but computed rolling 7d (calendar week read -$16.57 vs +$81.86)
     ])
 
     # stream cards
@@ -397,7 +400,7 @@ def render(g, board, fac, refresh):
                         f'<span class="pn">{n}/15 to size-up</span>')
             chips += f"""<div class="chip {sc}{glow}"><span class="cs">{ic}</span>
               <span class="cf">{esc(stream)} · {esc(r['fingerprint'])}</span>
-              <span class="cx">{esc(r['status'])} · live {esc(r['liveN'])} · {esc(extra)}</span>{prog}</div>"""
+              <span class="cx">{esc(r['status'])} · live+demo {esc(r['liveN'])} · {esc(extra)}</span>{prog}</div>"""
         if len(items) > cap:
             chips += f'<div class="chip muted"><span class="cf mut">+{len(items)-cap} more</span></div>'
         if not chips: chips = '<div class="chip muted"><span class="cf mut">none</span></div>'

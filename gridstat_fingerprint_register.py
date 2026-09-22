@@ -185,7 +185,7 @@ def main():
         for acct, deals in deals_by_acct.items():
             micfg = mi.ACCOUNTS[acct]["streams"].get(cfg["sym"])
             if not micfg: continue
-            p, _, _ = mi.mine(cfg["sym"], micfg, deals)
+            p, _, _, _ = mi.mine(cfg["sym"], micfg, deals)   # [2026-09-22] mine() now also returns open episodes (miner fix); 4th value unused here
             for k, v in p.items():
                 a = per.setdefault(k, [0, 0, 0.0])
                 a[0] += v[0]; a[1] += v[1]; a[2] += v[2]
