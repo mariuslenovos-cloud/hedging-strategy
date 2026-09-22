@@ -136,7 +136,7 @@ def main():
         print("%-14s %10.2f %6s %6s %8s %7s %8s %s" %
               (c, r["net"], r["pf"], r["rf"], r["eqdd"], r["trades"], r["quality"],
                " ".join(f"{k}={v}" for k, v in sorted(ev.items())) or "-"))
-    ctl = res.get("OIL FRZ0", (None, []))[0]
+    ctl = res.get("OIL FRZ0", res.get("OIL NDB0", (None, [])))[0]
     if ctl and ctl["net"] is not None and ANCHOR_NET is not None:
         gap = ctl["net"] - ANCHOR_NET
         ok = abs(gap) < 5.0 and ctl["trades"] == ANCHOR_TR
