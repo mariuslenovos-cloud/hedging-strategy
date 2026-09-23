@@ -325,8 +325,8 @@ TERMINAL_DATA = {
 }
 WATCH_EAS = {   # EA file name -> attached on which terminals (the book as deployed)
     "GOLD HPIN12": ("LIVE", "DEON"),      # 2026-09-04 15:08 swap (velocity guard rejected on the PEP full curve)
-    "Marius GridStat MT5 OIL SOLID LOCKED": ("DEON", "DEMO"),
-    "Marius GridStat MT5 OIL SOLID LOCKED FRZRT15KP1": ("LIVE",),   # 2026-09-23 attached on MAIN (banner verified); DEON moves here when attached
+    "Marius GridStat MT5 OIL SOLID LOCKED": ("DEMO",),
+    "Marius GridStat MT5 OIL SOLID LOCKED FRZRT15KP1": ("LIVE", "DEON"),   # 2026-09-23 MAIN 14:58 / DEON 15:02 (banners verified)
     "Marius GridStat MT5 GOLD LOCKED": ("DEMO",),
     "GOLD DAYRANK": ("DEMO",),
     "Marius LongVol Bracket MT5 v1.0": ("DEMO",),   # 2026-09-06 demo forward; attached 12:22 (banner verified), check generalised the same day
