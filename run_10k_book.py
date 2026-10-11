@@ -22,8 +22,15 @@ CELLS = OrderedDict([
     ("g10k_full",  ("GOLD HPIN12 FULL",         "XAUUSD",   None)),                       # FULL geometry (0.02/PT100/RBT40); compounding x2 -> 0.04 at $10k
     ("o10k_kp1",   ("OIL FRZRT15KP1",           "SpotCrude", None)),                      # deployed oil, risk-norm 2.5% of balance
     ("z10k_lot02", ("Marius ZGrid MT5 v1.0",    "XAUUSD",   dict(ZBASE, LotSize="0.02", ProfitTargetUSD="100.0", RescueBookTargetUSD="40.0"))),   # the demo preset as loaded (compounding x2 at $10k -> 0.04)
-    ("z10k_lot05", ("Marius ZGrid MT5 v1.0",    "XAUUSD",   dict(ZBASE, LotSize="0.05", ProfitTargetUSD="250.0", RescueBookTargetUSD="100.0", UseCompounding="false"))),  # the roadmap's 0.05, covariant $-levers, no compounding
+    ("z10k_lot05", ("Marius ZGrid MT5 v1.0",    "XAUUSD",   dict(ZBASE, LotSize="0.05", ProfitTargetUSD="250.0", RescueBookTargetUSD="100.0", UseCompounding="false"))),  # the roadmap's 0.05, covariant $-levers, no compounding -> REJECTED (eqDD 30%)
+    # --- the SAFE-SIZE levers (2026-10-11, user: "do we increase position size safely?") ---
+    ("g10k_full_c3", ("GOLD HPIN12 FULL C3",      "XAUUSD",   None)),                       # MaxCompoundScale 3: lots 0.06 above $9k, %-floors + $100 target unchanged
+    ("z10k_lot03", ("Marius ZGrid MT5 v1.0",    "XAUUSD",   dict(ZBASE, LotSize="0.03", ProfitTargetUSD="150.0", RescueBookTargetUSD="60.0"))),   # compounding x2 -> 0.06 at the SAME $25-per-0.01 target as the good lot02 cell
+    ("z10k_lot04", ("Marius ZGrid MT5 v1.0",    "XAUUSD",   dict(ZBASE, LotSize="0.04", ProfitTargetUSD="200.0", RescueBookTargetUSD="80.0"))),   # -> 0.08 effective, same geometry
+    ("o10k_r20",   ("OIL KP1 R20",              "SpotCrude", None)),                      # oil risk 2.0% (Pass-61 validated at $3k)
+    ("o10k_r15",   ("OIL KP1 R15",              "SpotCrude", None)),                      # oil risk 1.5%
 ])
+GROUPS = dict(gold=["g10k_half", "g10k_full", "g10k_full_c3"], zg=["z10k_lot02", "z10k_lot03", "z10k_lot04", "z10k_lot05"], oil=["o10k_kp1", "o10k_r20", "o10k_r15"])
 OUT = os.path.join(HERE, "analysis_data", f"book_10k_{datetime.now():%Y%m%d}.txt")
 
 
@@ -37,13 +44,13 @@ def run(names):
         print("!! runner already running -- abort"); sys.exit(2)
     for n in names:
         exp, sym, setl = CELLS[n]
-        rr.run_job(n, dict(expert=exp, symbol=sym, deposit=DEPOSIT,
-                           setlines=[f"{k}={v}" for k, v in setl.items()] if setl else None))
-        rp = report(n)
-        if rp:
-            s = CD.deals(rp); print(f"  [{n}] report ok, deals {len(s)}", flush=True)
-        else:
-            print(f"  [{n}] !! NO REPORT", flush=True)
+        for attempt in range(8):   # XAUUSD tick pre-download is cancelled on most launches (Bug Log 10-08); 45-s pauses between outer tries
+            rr.run_job(n, dict(expert=exp, symbol=sym, deposit=DEPOSIT,
+                               setlines=[f"{k}={v}" for k, v in setl.items()] if setl else None))
+            rp = report(n); nd = len(CD.deals(rp)) if rp else 0
+            print(f"  [{n}] outer attempt {attempt+1}: deals {nd}", flush=True)
+            if nd > 0: break
+            import time; time.sleep(45)
 
 
 def summary(path):
@@ -74,17 +81,16 @@ def compose(names):
     lines.append(f"\nBOOK COMPOSITIONS at ${DEPOSIT:,} (realized daily P&L, summed across engines):")
     h2 = f"{'book':<36}{'net':>9}{'realDD':>8}{'RF':>7}{'$/tday':>8}{'$/day%':>8}{'worst d':>9}{'pain':>8}{'+days':>7}"
     lines.append(h2); lines.append("-" * len(h2))
-    gold = [k for k in ("g10k_half", "g10k_full") if k in P]; zg = [k for k in ("z10k_lot02", "z10k_lot05") if k in P]
     rows = []
-    for g in [None] + gold:
-        for z in [None] + zg:
-            for o in (0, 1):
-                parts = [x for x in (g, z, "o10k_kp1" if o and "o10k_kp1" in P else None) if x]
+    for g in [None] + [k for k in GROUPS["gold"] if k in P]:
+        for z in [None] + [k for k in GROUPS["zg"] if k in P]:
+            for o in [None] + [k for k in GROUPS["oil"] if k in P]:
+                parts = [x for x in (g, z, o) if x]
                 if not parts: continue
                 p = sum(P[k] for k in parts); st = CD.stats(p)
                 rows.append(("+".join(parts), st, CD.pain_sum(p)))
     rows.sort(key=lambda r: -r[1]["net"])
-    for label, st, ps in rows:
+    for label, st, ps in rows[:40]:
         lines.append(f"{label:<36}{st['net']:>9,.0f}{st['maxdd']:>8,.0f}{st['rf']:>7.2f}{st['net']/tdays:>8,.0f}{100*st['net']/tdays/DEPOSIT:>8.2f}{st['worst']:>9,.0f}{ps:>8,.0f}{st['pos_days']:>7.0%}")
     lines.append("\nmonthly net per engine ($):")
     M = P.resample("ME").sum(); M.index = M.index.strftime("%Y-%m")
