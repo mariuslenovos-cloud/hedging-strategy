@@ -7,6 +7,8 @@ import rolling_retest as rr, run_frz_ab as F, cell_d_allocation as CD, pandas as
 ZB=OrderedDict(TriggerMode="2",ZLookback="24",EntryZ="2.25",UseSessionFilter="true",SessionStartHour="18",SessionEndHour="23",UseDailyTrendFilter="true",AlignEmaPeriod="200",StagedCutCooldownMin="0",UseSignalLog="false",UseCompounding="false")
 CELLS=OrderedDict([
  ("gc50_10k",("GOLD COV G50 X2","XAUUSD",None,10000)),("gc50_15k",("GOLD COV G50 X3","XAUUSD",None,15000)),("gc50_20k",("GOLD COV G50 X4","XAUUSD",None,20000)),
+ ("gc37_10k",("GOLD COV G37 X2","XAUUSD",None,10000)),("gc62_10k",("GOLD COV G62 X2","XAUUSD",None,10000)),   # PT neighbours of gc50_10k at 0.04 (plateau or spike?)
+ ("gc50cb_10k",("GOLD COV G50 X2 CB","XAUUSD",None,10000)),   # same geometry WITH compounding (cap 2 at base 3000 = x2 already at $10k -> 0.08?) = what attaching it live would do
  ("gc25_15k",("GOLD COV G25 X3","XAUUSD",None,15000)),("gc25_20k",("GOLD COV G25 X4","XAUUSD",None,20000)),
  ("zc_10k",("Marius ZGrid MT5 v1.0","XAUUSD",dict(ZB,LotSize="0.04",ProfitTargetUSD="100.0",RescueBookTargetUSD="40.0"),10000)),
  ("zc_15k",("Marius ZGrid MT5 v1.0","XAUUSD",dict(ZB,LotSize="0.06",ProfitTargetUSD="150.0",RescueBookTargetUSD="60.0"),15000)),
