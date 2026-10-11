@@ -348,6 +348,16 @@ def main():
     if now.weekday() == 0:
         brief.append("")
         weekly_shadow_refresh(brief)
+        # RESEARCH PROBE (2026-10-11, user: "put a process in place to probe" the shelved research): every killed/shelved/open
+        # item in analysis_data/research_registry.csv is re-probed when its trigger (capital / sample / date / event) fires.
+        brief.append("")
+        try:
+            import research_probe
+            _due = research_probe.main(brief, with_balance=True)
+            for _r, _why in _due:
+                decisions.append(f"RESEARCH PROBE due: {_r['id']} ({_why}) -> run: {_r['probe']}")
+        except Exception as _e:
+            brief.append(f"RESEARCH PROBE: failed ({_e})")
         # OIL: same cycle, on the PEP deployment feed, with its own control cell. Added
         # 2026-09-01 — oil's table had gone 33 days stale while gold refreshed weekly, and
         # oil has the least selection redundancy in the book (2 tradeable fingerprints).
