@@ -37,6 +37,26 @@ def ledger_counts():
     return out
 
 
+def oil_review(since):
+    """The oil review line (2026-10-12): fires only when BOTH (a) the two most recent weekly re-tests of OIL-SOLID@PEP dated
+    after `since` are net-negative AND (b) MAIN's live oil realized net over the last 56 days (episode ledger, LIVE account
+    only -- DEON is not the user's account) is negative. Returns a reason string when fired, else None (status printed)."""
+    import pandas as pd
+    try:
+        rt = pd.read_csv(os.path.join(HERE, "analysis_data", "rolling_retest.csv"))
+        o = rt[(rt.job == "OIL-SOLID@PEP") & (rt.date.astype(str).str[:10] > since)].tail(2)
+        led = pd.read_csv(os.path.join(HERE, "analysis_data", "episode_ledger.csv"), parse_dates=["closed"])
+        lv = led[(led.account == "LIVE") & (led.stream == "oil-SOLID") & (led.closed >= pd.Timestamp.now() - pd.Timedelta(days=56))]
+        live = float(lv.realized_net.sum())
+    except Exception as e:
+        print(f"   oil_review: cannot evaluate ({e})"); return None
+    nets = [float(x) for x in o.net]
+    a = len(nets) == 2 and all(x < 0 for x in nets); b = live < 0
+    state = f"re-tests after {since}: {nets if nets else 'none yet'} | MAIN live oil 56d {live:+.2f} ({len(lv)} eps)"
+    print(f"   oil_review: {state} -> {'FIRED' if (a and b) else 'not fired'}")
+    return f"oil review line FIRED ({state})" if (a and b) else None
+
+
 def due(rows, bal, counts, today):
     out = []
     for r in rows:
@@ -54,6 +74,8 @@ def due(rows, bal, counts, today):
                         if n >= need: why = f"sample trigger met ({k} {n} >= {need})"
                     except Exception:
                         pass
+        elif kind == "oil_review":
+            why = oil_review(val)
         elif kind == "date":
             if val.count("-") == 2:
                 try:
