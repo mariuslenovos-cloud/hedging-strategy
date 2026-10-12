@@ -163,11 +163,14 @@ def check_coverage_and_attribution():
     # 2026-09-04: Book Guard v2 hedges with its own magic on WHATEVER symbol tripped -> it cannot live in a
     # per-(magic,symbol) stream map. It is attributed here explicitly (its P&L is the guard's cost) rather
     # than flagged as an orphan. Anything ELSE unwatched still FAILS.
-    INFRA = {909090: "Book Guard v2 hedge"}
+    INFRA = {909090: "Book Guard v2 hedge", 909091: "kill-switch test (killtest_demo.py)"}
+    # 2026-10-12: the first killtest (10-12 01:30) opened its throwaway 0.01 position with magic 0 on the DEMO = a manual-class
+    # position, -$0.11. Future tests use 909091. On the DEMO only, magic 0 = hand/test positions (no engine opens magic 0) -> infra.
+    DEMO_INFRA = {0: "manual / kill-switch test position (DEMO)"}
     for _t, _acc in watch.items():
         if isinstance(_acc, dict):
             for _a, _m in _acc.items():
-                if isinstance(_m, set): _m.update(INFRA)
+                if isinstance(_m, set): _m.update(INFRA); _m.update(DEMO_INFRA if _a == "DEMO" else {})
     for acct, (path, login) in ACCOUNTS.items():
         ai = connect(path, login)
         if ai is None:
@@ -240,6 +243,30 @@ def check_ea_inputs():
         age = (time.time() - os.path.getmtime(p)) / 86400 if ok else 0
         check(f"{label}: {fn}", ok,
               f"{os.path.getsize(p):,} bytes, {age:.0f}d old" if ok else "MISSING or empty in Common\\Files")
+    check_gate_db_instrument()
+
+
+# 2026-09-28: gridstat_setups_oil_research.csv (the gate DB every oil engine reads) was found to hold GOLD rows
+# (entry prices 3,972-5,516) since 07-29. A present, non-empty, correctly-named file is not proof it describes the
+# instrument that reads it. Assert the price level of every setups file against its instrument's band.
+PRICE_BANDS = {"gold": (1000, 10000), "oil": (20, 250), "silver": (10, 200)}
+
+def check_gate_db_instrument():
+    for label, fn in EA_FILES.items():
+        if "setups" not in fn: continue
+        inst = next((k for k in PRICE_BANDS if k in fn.lower()), None)
+        p = os.path.join(COMMON, fn)
+        if inst is None or not os.path.exists(p): continue
+        try:
+            with open(p, encoding="latin-1") as fh:
+                hdr = fh.readline().strip().split(","); ei = hdr.index("entry_price")
+                px = [float(r.split(",")[ei]) for r in fh if r.strip()]
+        except Exception as e:
+            check(f"{label}: {fn} describes {inst}", False, f"unreadable: {e}"); continue
+        lo, hi = PRICE_BANDS[inst]
+        ok = bool(px) and lo <= min(px) and max(px) <= hi
+        check(f"{label}: {fn} describes {inst}", ok,
+              f"entry prices {min(px):.2f}-{max(px):.2f} vs {inst} band {lo}-{hi}" if px else "no rows")
 
 
 # 2026-09-06: the auditor's EVENT log only writes on episode closes/alerts, so "auditor log < 6h" failed on every
@@ -325,11 +352,11 @@ TERMINAL_DATA = {
 }
 WATCH_EAS = {   # EA file name -> attached on which terminals (the book as deployed)
     "GOLD HPIN12": ("LIVE", "DEON"),      # 2026-09-04 15:08 swap (velocity guard rejected on the PEP full curve)
-    "Marius GridStat MT5 OIL SOLID LOCKED": ("DEMO",),
-    "Marius GridStat MT5 OIL SOLID LOCKED FRZRT15KP1": ("LIVE", "DEON"),   # 2026-09-23 MAIN 14:58 / DEON 15:02 (banners verified)
+    "Marius GridStat MT5 OIL SOLID LOCKED FRZRT15KP1": ("LIVE", "DEON", "DEMO"),   # 2026-09-23 MAIN 14:58 / DEON 15:02 (banners verified); DEMO swap staged 2026-10-05 (user flattened the book) -- reads FAIL until the attach banner prints
     "Marius GridStat MT5 GOLD LOCKED": ("DEMO",),
-    "GOLD DAYRANK": ("DEMO",),
-    "Marius LongVol Bracket MT5 v1.0": ("DEMO",),   # 2026-09-06 demo forward; attached 12:22 (banner verified), check generalised the same day
+    "Marius ZGrid MT5 v1.0": ("DEMO",),   # 2026-10-09 21:17 attached on the demo (banner ZGRID-2026-10-09-B + CONFIG | ZGRID | TriggerMode=2 ZLookback=24 EntryZ=2.25 verified)
+    # "MM t2one LIVE": ("LIVE", "DEON"),   # 2026-10-05 attached; 2026-10-08 REMOVED by the user (journals: DEON 17:17:11, MAIN 17:17:23) after 25 ladders / -$90 per account; auditor maps keep 954801 for attribution
+    # 2026-10-05: GOLD DAYRANK + LongVol demo charts RETIRED (size lever decided by the GUI pairs; LongVol = capital question) -- unwatched
     "MM_ShadowLogger": ("DEMO",),  # 2026-09-07 MM V5 forward test. Places NO orders (no trade functions compiled in),
                                    # so it carries no magic and cannot reach the auditor -- but a silently-dead logger
                                    # reads exactly like a quiet market, so running-vs-disk is the only thing guarding
@@ -346,6 +373,8 @@ def _read16(path):
         try: return io.open(path, encoding=enc, errors="replace").read()
         except Exception: continue
     return ""
+# 2026-10-07: the Experts-log windows below scan the last 10 files (were 3): a terminal up more than three days lost its
+# init banner from the window and read FAIL on a healthy deploy (the 09-17 ⑧ cry-wolf class, one tool over).
 def check_running_vs_disk():
     print("\n(6) RUNNING-vs-DISK (is the attached instance the build on disk?)")
     for ea, terms in WATCH_EAS.items():
@@ -359,7 +388,7 @@ def check_running_vs_disk():
             # never PASS -> its 09-06 "negative test" failed for the wrong reason. Now: any #define/const carrying a
             # dated stamp on disk; any init line printed by this EA that carries a dated stamp in the log.
             disk = _disk_stamp(src)
-            logs = sorted(glob.glob(os.path.join(data, "MQL5", "Logs", "*.log")))[-3:]
+            logs = sorted(glob.glob(os.path.join(data, "MQL5", "Logs", "*.log")))[-10:]
             running = None
             for lg in logs:
                 for line in _read16(lg).splitlines():
@@ -426,7 +455,7 @@ def check_guard_shape():
     for term in ("LIVE", "DEON"):
         data = TERMINAL_DATA[term]
         pct = frz = None; last_init = None
-        for lg in sorted(glob.glob(os.path.join(data, "MQL5", "Logs", "*.log")))[-3:]:
+        for lg in sorted(glob.glob(os.path.join(data, "MQL5", "Logs", "*.log")))[-10:]:
             for line in _read16(lg).splitlines():
                 if GUARD_EA + " (" not in line: continue
                 m = re.search(r"CONFIG \| MaxDailyLossPct=([\d.]+)%", line)
@@ -450,7 +479,7 @@ def check_guard_shape():
         src = os.path.join(data, "MQL5", "Experts", GUARD_EA + ".mq5")
         md = re.search(r'#define BUILD "([^"]+)"', io.open(src, encoding="utf-8", errors="replace").read()) if os.path.exists(src) else None
         disk = md.group(1) if md else "?"; running = None
-        for lg in sorted(glob.glob(os.path.join(data, "MQL5", "Logs", "*.log")))[-3:]:
+        for lg in sorted(glob.glob(os.path.join(data, "MQL5", "Logs", "*.log")))[-10:]:
             for line in _read16(lg).splitlines():
                 mb = re.search(r"MARIUS BOOK GUARD (BOOKGUARD-\S+)", line)
                 if mb and GUARD_EA + " (" in line: running = mb.group(1)

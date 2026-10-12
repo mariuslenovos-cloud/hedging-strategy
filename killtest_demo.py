@@ -8,7 +8,7 @@ ai = E.attach(*E.ACCTS["DEMO"])
 if not ai: lines.append("demo attach FAILED")
 else:
     sym = "XAUUSD"; mt5.symbol_select(sym, True); t = mt5.symbol_info_tick(sym)
-    r = mt5.order_send(dict(action=mt5.TRADE_ACTION_DEAL, symbol=sym, volume=0.01, type=mt5.ORDER_TYPE_BUY, price=t.ask, deviation=50, magic=0, comment="KILLTEST", type_filling=mt5.ORDER_FILLING_IOC))
+    r = mt5.order_send(dict(action=mt5.TRADE_ACTION_DEAL, symbol=sym, volume=0.01, type=mt5.ORDER_TYPE_BUY, price=t.ask, deviation=50, magic=909091, comment="KILLTEST", type_filling=mt5.ORDER_FILLING_IOC))
     lines.append(f"open: {r.retcode} {r.comment}")
     time.sleep(3)
     p = [x for x in (mt5.positions_get(symbol=sym) or []) if x.comment == "KILLTEST"]
