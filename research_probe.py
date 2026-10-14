@@ -74,6 +74,13 @@ def due(rows, bal, counts, today):
                         if n >= need: why = f"sample trigger met ({k} {n} >= {need})"
                     except Exception:
                         pass
+        elif kind == "script":            # the row's own probe command decides: exit 0 = condition met
+            try:
+                import subprocess, shlex
+                cp = subprocess.run(r["probe"].split(), capture_output=True, text=True, timeout=300, cwd=os.path.dirname(os.path.abspath(__file__)))
+                if cp.returncode == 0: why = "script trigger met: " + (cp.stdout.strip().splitlines() or [""])[-1][:160]
+            except Exception as e:
+                why = f"script trigger ERROR ({e})"
         elif kind == "oil_review":
             why = oil_review(val)
         elif kind == "date":

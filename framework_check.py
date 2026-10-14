@@ -355,7 +355,7 @@ WATCH_EAS = {   # EA file name -> attached on which terminals (the book as deplo
     "Marius GridStat MT5 OIL SOLID LOCKED FRZRT15KP1": ("LIVE", "DEON", "DEMO"),   # 2026-09-23 MAIN 14:58 / DEON 15:02 (banners verified); DEMO swap staged 2026-10-05 (user flattened the book) -- reads FAIL until the attach banner prints
     "Marius GridStat MT5 GOLD LOCKED": ("DEMO",),
     "Marius ZGrid MT5 v1.0": ("DEMO",),   # 2026-10-09 21:17 attached on the demo (banner ZGRID-2026-10-09-B + CONFIG | ZGRID | TriggerMode=2 ZLookback=24 EntryZ=2.25 verified)
-    # "MM t2one LIVE": ("LIVE", "DEON"),   # 2026-10-05 attached; 2026-10-08 REMOVED by the user (journals: DEON 17:17:11, MAIN 17:17:23) after 25 ladders / -$90 per account; auditor maps keep 954801 for attribution
+    "MM t2one LIVE": ("LIVE", "DEON"),   # 2026-10-14 RE-ATTACHED by the user 08:03 (both banners verified); history: 2026-10-05 attached; 2026-10-08 REMOVED by the user (journals: DEON 17:17:11, MAIN 17:17:23) after 25 ladders / -$90 per account; auditor maps keep 954801 for attribution
     # 2026-10-05: GOLD DAYRANK + LongVol demo charts RETIRED (size lever decided by the GUI pairs; LongVol = capital question) -- unwatched
     "MM_ShadowLogger": ("DEMO",),  # 2026-09-07 MM V5 forward test. Places NO orders (no trade functions compiled in),
                                    # so it carries no magic and cannot reach the auditor -- but a silently-dead logger
